@@ -177,7 +177,7 @@ All three must pass before commit.
 The `Dockerfile` uses a two-stage build:
 
 1. `node:20-slim` builder installs deps and compiles TypeScript to `dist/`.
-2. `mcr.microsoft.com/playwright:v1.52.0-jammy` runtime ships Chromium + system libs and runs `node dist/index.js`.
+2. `mcr.microsoft.com/playwright:v1.60.0-jammy` runtime ships Chromium + system libs and runs `node dist/index.js`.
 
 Railway setup:
 

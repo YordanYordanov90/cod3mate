@@ -28,7 +28,7 @@ RUN npm prune --omit=dev
 # Runtime stage — Node 20 + Chromium + all system libs
 # Pin the Playwright tag to match the npm package major.minor.
 # ============================================================
-FROM mcr.microsoft.com/playwright:v1.52.0-jammy AS runtime
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy AS runtime
 
 ENV NODE_ENV=production \
     DATA_DIR=/data \

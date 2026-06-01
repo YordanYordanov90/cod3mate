@@ -17,6 +17,41 @@ export interface SanitizeOptions {
 }
 
 /**
+ * Module-level registry of literal secret values that must always be redacted
+ * from sanitized output. Populated at startup with values like
+ * TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD so every downstream sanitize call
+ * — tool results, chat replies, task summaries — automatically scrubs them.
+ *
+ * Centralizing here satisfies architecture invariant #2 (zero secret leakage)
+ * without plumbing extraSecrets through every call site.
+ */
+const registeredSecrets = new Set<string>();
+
+/**
+ * Register a literal secret value for global redaction.
+ * Values shorter than 4 chars are ignored (would be too risky to regex-replace).
+ */
+export function registerSecret(value: string | undefined | null): void {
+  if (!value || typeof value !== 'string') return;
+  if (value.length < 4) return;
+  registeredSecrets.add(value);
+}
+
+/**
+ * Snapshot of currently registered secrets. Exposed for tests / diagnostics.
+ */
+export function getRegisteredSecrets(): string[] {
+  return Array.from(registeredSecrets);
+}
+
+/**
+ * Clear all globally registered secrets. Test-only utility.
+ */
+export function clearRegisteredSecrets(): void {
+  registeredSecrets.clear();
+}
+
+/**
  * Redact a single string value.
  * Replaces known secrets and common credential patterns with [REDACTED].
  */
@@ -25,11 +60,10 @@ export function sanitizeString(input: string, options: SanitizeOptions = {}): st
 
   let result = input;
 
-  // Redact exact secret values if provided
-  const secrets = options.extraSecrets ?? [];
+  // Combine caller-supplied secrets with the global registry.
+  const secrets = [...(options.extraSecrets ?? []), ...registeredSecrets];
   for (const secret of secrets) {
     if (secret && secret.length > 3) {
-      // Use a safe global replace
       const escaped = secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(escaped, 'g');
       result = result.replace(regex, '[REDACTED]');

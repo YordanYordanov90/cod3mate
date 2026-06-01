@@ -1,5 +1,5 @@
 import type { OpenAIClient } from './client.js';
-import { buildSystemPrompt } from './prompt.js';
+import { buildSystemPrompt, type TestCredentials } from './prompt.js';
 import { isRetryableForFallback } from './client.js';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { toolRegistry } from '../tools/registry.js';
@@ -18,6 +18,12 @@ export interface AgentInput {
   selectedModel?: string | null | undefined;
   /** Whether to enable tool calling in this run */
   enableTools?: boolean;
+  /**
+   * Optional test credentials for browser-based login flows.
+   * Sourced from env (TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD).
+   * Never pass values that originated from chat input.
+   */
+  testCredentials?: TestCredentials | undefined;
 }
 
 export interface AgentResult {
@@ -53,7 +59,10 @@ export async function runAgent(
   deps: AgentDependencies
 ): Promise<AgentResult> {
   const registry = deps.registry ?? toolRegistry;
-  const systemPrompt = buildSystemPrompt({ soulContent: input.soulContent });
+  const systemPrompt = buildSystemPrompt({
+    soulContent: input.soulContent,
+    testCredentials: input.testCredentials,
+  });
 
   let messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },

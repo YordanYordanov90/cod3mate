@@ -10,7 +10,9 @@ import {
   setSelectedModel,
 } from './storage/sessions.js';
 import { createOpenAIClient, runAgent } from './agent/mod.js';
+import type { TestCredentials } from './agent/prompt.js';
 import { toolRegistry } from './tools/registry.js';
+import { registerSecret } from './security/sanitize.js';
 import { buildTaskSummary } from './summary/mod.js';
 import { createFileReadTool, createFileWriteTool } from './tools/files/mod.js';
 import { createTerminalExecTool } from './tools/terminal/mod.js';
@@ -115,6 +117,24 @@ async function main() {
 
   console.log(`[startup] Registered ${toolRegistry.listNames().length} core tools: ${toolRegistry.listNames().join(', ')}`);
 
+  // === Test credentials (optional) ===
+  // When both env vars are set, the agent receives them via the system prompt
+  // under a strict no-echo policy. Their literal values are also registered
+  // with the central sanitizer so any accidental leak in tool output, chat
+  // replies, or task summaries is redacted.
+  const testCredentials: TestCredentials | undefined =
+    env.TEST_ACCOUNT_EMAIL && env.TEST_ACCOUNT_PASSWORD
+      ? { email: env.TEST_ACCOUNT_EMAIL, password: env.TEST_ACCOUNT_PASSWORD }
+      : undefined;
+
+  if (testCredentials) {
+    registerSecret(testCredentials.email);
+    registerSecret(testCredentials.password);
+    console.log('[startup] Test credentials enabled (values registered with sanitizer; never logged).');
+  } else {
+    console.log('[startup] Test credentials disabled (TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD not set).');
+  }
+
   // === Milestone 4: OpenAI + Agent wiring ===
   const openai = createOpenAIClient({ apiKey: env.OPENAI_API_KEY });
 
@@ -141,6 +161,7 @@ async function main() {
         fallbackModel: env.OPENAI_FALLBACK_MODEL,
         selectedModel: args.selectedModel ?? null,
         enableTools: true,
+        testCredentials,
       },
       { openai }
     );

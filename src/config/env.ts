@@ -32,6 +32,14 @@ const EnvSchema = z.object({
   TELEGRAM_CHUNK_SIZE: z.coerce.number().int().positive().default(3500),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   ENABLE_FILE_LOGS: z.coerce.boolean().default(false),
+
+  // Optional - Test credentials for browser-based testing.
+  // When both are set, the agent receives them via the system prompt under a
+  // strict "use silently, never echo" policy. They are also registered with
+  // the central sanitizer so any accidental output is redacted. Configure
+  // these in Railway (or .env.local for dev). Owner only.
+  TEST_ACCOUNT_EMAIL: z.string().min(1).optional(),
+  TEST_ACCOUNT_PASSWORD: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -86,5 +94,6 @@ export function getEnvSummary(env: Env): Record<string, unknown> {
     hasTelegramToken: Boolean(env.TELEGRAM_BOT_TOKEN),
     hasOpenAIKey: Boolean(env.OPENAI_API_KEY),
     hasTavilyKey: Boolean(env.TAVILY_API_KEY),
+    hasTestCredentials: Boolean(env.TEST_ACCOUNT_EMAIL && env.TEST_ACCOUNT_PASSWORD),
   };
 }
