@@ -1,0 +1,99 @@
+import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
+import path from 'node:path';
+
+/**
+ * Storage helpers for /data (Railway volume) and /tmp.
+ * All paths are resolved relative to the configured DATA_DIR.
+ */
+
+export const SESSIONS_DIR = 'sessions';
+export const SOUL_FILE = 'SOUL.md';
+
+export interface StoragePaths {
+  dataDir: string;
+  sessionsDir: string;
+  soulPath: string;
+}
+
+/**
+ * Resolve and return the canonical storage paths.
+ */
+export function getStoragePaths(dataDir: string): StoragePaths {
+  const resolvedData = path.resolve(dataDir);
+  return {
+    dataDir: resolvedData,
+    sessionsDir: path.join(resolvedData, SESSIONS_DIR),
+    soulPath: path.join(resolvedData, SOUL_FILE),
+  };
+}
+
+/**
+ * Ensure the data directory and sessions subdirectory exist.
+ * Safe to call multiple times (idempotent).
+ */
+export async function ensureDataDirectories(dataDir: string): Promise<void> {
+  const paths = getStoragePaths(dataDir);
+
+  await mkdir(paths.dataDir, { recursive: true });
+  await mkdir(paths.sessionsDir, { recursive: true });
+}
+
+/**
+ * Check if a file exists.
+ */
+export async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read a text file. Returns null if not found (ENOENT).
+ * Throws on other errors.
+ */
+export async function readTextFile(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (err: any) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/**
+ * Write text content to a file (overwrites).
+ */
+export async function writeTextFile(filePath: string, content: string): Promise<void> {
+  await writeFile(filePath, content, 'utf8');
+}
+
+/**
+ * Read and parse a JSON file. Returns null if not found.
+ */
+export async function readJsonFile<T>(filePath: string): Promise<T | null> {
+  const text = await readTextFile(filePath);
+  if (text === null) return null;
+  return JSON.parse(text) as T;
+}
+
+/**
+ * Write data as pretty JSON.
+ */
+export async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
+  const text = JSON.stringify(data, null, 2);
+  await writeTextFile(filePath, text);
+}
+
+// Re-export session functionality
+export type { ChatSession, SessionMessage } from './sessions.js';
+export {
+  loadSession,
+  saveSession,
+  resetSession,
+  appendMessage,
+  setSelectedModel,
+  createEmptySession,
+} from './sessions.js';

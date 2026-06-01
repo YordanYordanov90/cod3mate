@@ -1,0 +1,49 @@
+# Git
+.git
+.gitignore
+.github
+
+# Env files — secrets must come from Railway env vars, never the image
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output (rebuilt fresh inside the image)
+dist
+
+# Tests and coverage
+tests
+coverage
+**/*.test.ts
+**/*.spec.ts
+vitest.config.*
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
+logs
+
+# Local persistent / scratch dirs
+data
+tmp
+
+# Docs and AI agent context — not needed at runtime
+context
+AGENTS.md
+README.md
+
+# Docker files themselves
+Dockerfile
+.dockerignore
