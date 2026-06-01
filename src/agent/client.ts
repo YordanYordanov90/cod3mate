@@ -43,6 +43,47 @@ export type OpenAIClient = {
 };
 
 /**
+ * GPT-5.x and o-series reasoning models reject `max_tokens` and non-default `temperature`.
+ * They require `max_completion_tokens` (when capping output) and temperature omitted or 1.
+ */
+export function isReasoningStyleModel(model: string): boolean {
+  const id = model.toLowerCase();
+  if (id.startsWith('gpt-5')) return true;
+  if (id.startsWith('o1') || id.startsWith('o3') || id.startsWith('o4')) return true;
+  return /^o\d/.test(id);
+}
+
+/**
+ * Build Chat Completions params compatible with both classic and reasoning models.
+ */
+export function buildChatCompletionParams(
+  req: ChatRequest
+): OpenAI.Chat.ChatCompletionCreateParamsNonStreaming {
+  const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
+    model: req.model,
+    messages: req.messages,
+  };
+
+  if (req.tools && req.tools.length > 0) {
+    params.tools = req.tools;
+  }
+
+  if (isReasoningStyleModel(req.model)) {
+    // Omit temperature — API uses default (1). Do not send max_tokens.
+    if (req.maxTokens !== undefined) {
+      params.max_completion_tokens = req.maxTokens;
+    }
+  } else {
+    params.temperature = req.temperature ?? 0.7;
+    if (req.maxTokens !== undefined) {
+      params.max_tokens = req.maxTokens;
+    }
+  }
+
+  return params;
+}
+
+/**
  * Create a wrapped OpenAI client.
  */
 export function createOpenAIClient(config: OpenAIClientConfig): OpenAIClient {
@@ -52,13 +93,7 @@ export function createOpenAIClient(config: OpenAIClientConfig): OpenAIClient {
   });
 
   async function chat(req: ChatRequest): Promise<ChatResponse> {
-    const completion = await openai.chat.completions.create({
-      model: req.model,
-      messages: req.messages,
-      temperature: req.temperature ?? 0.7,
-      max_tokens: req.maxTokens ?? null,
-      ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
-    });
+    const completion = await openai.chat.completions.create(buildChatCompletionParams(req));
 
     const choice = completion.choices[0];
     const message = choice?.message;

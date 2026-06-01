@@ -266,8 +266,13 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
 
         await sendSafe(ctx, `${status}\n\n${summaryText}`, env.TELEGRAM_CHUNK_SIZE);
       }
-    } catch (err: any) {
-      console.error('[agent] Error processing message:', err);
+    } catch (err: unknown) {
+      const apiErr = err as { status?: number; code?: string; message?: string };
+      console.error('[agent] Error processing message:', {
+        status: apiErr.status,
+        code: apiErr.code,
+        message: apiErr.message,
+      });
       await sendSafe(
         ctx,
         'Sorry, I encountered an error while talking to the model. Please try again or use /status.',
