@@ -9,7 +9,7 @@ This project does not have a web UI in the initial scope. The primary interface 
 The bot should feel like a private technical operator:
 
 - concise for routine command responses
-- detailed for completed task summaries
+- focused on a single merged response per task (answer + compact footer)
 - explicit about tool failures and safety limits
 - calm when refusing access or rejecting unsafe operations
 - readable on mobile Telegram clients
@@ -24,7 +24,7 @@ The bot should feel like a private technical operator:
 | `/reset` | Clear conversation history | confirmation message |
 | `/model` | Show or switch model | current model plus allowed options |
 
-There is no `/report` command in this version. Task summaries are delivered automatically as Telegram messages when the agent finishes a task.
+There is no `/report` command in this version. Each completed task is delivered as a single merged Telegram message: the answer plus an optional compact footer with tools used and any failures.
 
 ## Message Formatting
 
@@ -45,41 +45,40 @@ There is no `/report` command in this version. Task summaries are delivered auto
 - Preserve code blocks only if they fit in one chunk.
 - For very long outputs, prefer a tighter task summary with key details over many Telegram messages.
 
-## Task Summary Format
+## Task Response Format
 
-Task summaries are Telegram messages, not files. Use a simple, mobile-friendly shape:
+Each completed task produces **one merged Telegram message**. There is no "Working on it..." preamble and no separate `Done.` / summary message — those were collapsed because the summary repeated the answer on mobile and felt like a double reply.
+
+Shape:
 
 ```text
-<Short Task Title>
+[(used fallback model: <model-id>)]
 
-Result:
-<One short paragraph describing what was done.>
+<the agent's answer>
 
-Tools used: <comma-separated list, or "none">
-
-Caveats:
-<Any failed steps, partial results, or things the owner should know. Skip this section if there are none.>
-
-Next steps:
-<Optional follow-up suggestions. Skip this section if there are none.>
+[—
+Tools: <comma-separated successes>
+Failed: <comma-separated failures>
+Stopped at iteration limit — break the task into smaller steps.]
 ```
 
-Notes:
+Rules:
 
-- Use plain text by default; only use Markdown when it genuinely helps readability.
-- Keep "Result" to one short paragraph. Push detail into "Caveats" or "Next steps" only when useful.
-- Do not include raw tool output, full logs, or secrets.
-- A persisted Markdown report format may be reintroduced in a later version; if so, update this section first.
+- The fallback-model line appears only when the fallback was actually used.
+- The footer block (everything below the `—` separator) appears only when there is something to report. With no tool use and no fallback, the message is just the answer.
+- Successes and failures are listed by tool name. Browser/login flows therefore reveal which steps ran without exposing arguments or values.
+- The iteration-limit line appears only when `iterationLimitHit` is true.
+- Use plain text by default. Only switch to Markdown when it genuinely helps readability.
+- Never include raw tool output, full logs, or secrets.
+- The standalone summary builder in `src/summary/mod.ts` is no longer wired into the message handler but is retained for future reuse (digests, alternative renderers).
 
 ## Status Messages
 
-Use consistent status phrasing:
+The bot speaks through the merged response message itself, not through status preambles. Reserved status phrases that may still appear inside the answer or in error paths:
 
-- `Working on it...` when a longer agent task starts.
-- `Tool limit reached.` when max iterations are hit.
-- `I could not complete that safely.` when security policy blocks an action.
-- `Done.` followed by the task summary block when a task completes successfully.
-- `Done with issues.` followed by the task summary block when the task partially completed and the caveats section is populated.
+- `Stopped at iteration limit — break the task into smaller steps.` — surfaced in the footer when the agent exits the loop because `MAX_AGENT_ITERATIONS` was reached.
+- `Sorry, I encountered an error while talking to the model. Please try again or use /status.` — sent when the agent throws an unhandled error.
+- `I could not complete that safely.` — used in the answer text when security policy blocks an action.
 
 ## Error Messages
 

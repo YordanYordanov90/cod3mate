@@ -37,6 +37,7 @@ export interface BotDependencies {
     modelUsed: string;
     usedFallback: boolean;
     toolCallsExecuted?: Array<{ name: string; success: boolean }>;
+    iterationLimitHit?: boolean;
   }>;
 
   /** Optional task summary builder (M7). Injected in production; tests may omit. */
@@ -246,14 +247,17 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       sections.push(agentResult.content);
 
       const tools = agentResult.toolCallsExecuted ?? [];
+      const footer: string[] = [];
       if (tools.length > 0) {
         const successful = tools.filter((t) => t.success).map((t) => t.name);
         const failed = tools.filter((t) => !t.success).map((t) => t.name);
-        const footer: string[] = [];
         if (successful.length > 0) footer.push(`Tools: ${successful.join(', ')}`);
         if (failed.length > 0) footer.push(`Failed: ${failed.join(', ')}`);
-        if (footer.length > 0) sections.push(`—\n${footer.join('\n')}`);
       }
+      if (agentResult.iterationLimitHit) {
+        footer.push('Stopped at iteration limit — break the task into smaller steps.');
+      }
+      if (footer.length > 0) sections.push(`—\n${footer.join('\n')}`);
 
       const merged = sections.join('\n\n');
       await sendSafe(ctx, sanitizeString(merged), env.TELEGRAM_CHUNK_SIZE);

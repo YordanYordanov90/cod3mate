@@ -4,11 +4,12 @@
 > system design, how parts talk to each other, where state lives, how memory works,
 > how tools are wired, and how errors are (and will be) handled.
 >
-> **Status note:** Only **Milestone 1 (Foundation)** is built today (`src/index.ts`,
-> `src/config/env.ts`). Everything else here is the *designed* behavior pulled from
-> `architecture.md`, `code-standards.md`, `ai-workflow-rules.md`, `project-overview.md`,
-> and `ui-context.md`. Sections that describe future code are marked **(planned)**.
-> Use this as a map of what exists and what comes next.
+> **Status note:** Milestones 1–8 are complete. The bot is deployed on Railway with a
+> mounted `/data` volume and is online for the whitelisted owner. Architecture, security
+> invariants, and tool boundaries described here all reflect built code, not plans.
+> The structured task-summary builder still lives in `src/summary/mod.ts` for potential
+> future reuse, but the live bot now sends one merged message per task instead. See
+> `progress-tracker.md` for the precise milestone state and session notes.
 
 ---
 
@@ -35,20 +36,20 @@ that shouldn't know about each other* (e.g. tools must never import Telegram cod
 
 | Boundary | Folder | Responsibility | Built? |
 | --- | --- | --- | --- |
-| Entrypoint | `src/index.ts` | Start app, validate env, launch bot, graceful shutdown | ✅ (skeleton) |
+| Entrypoint | `src/index.ts` | Start app, validate env, launch bot, graceful shutdown | ✅ |
 | Config | `src/config/` | Parse + validate env with Zod, safe defaults | ✅ |
-| Telegram | `src/telegram/` | Bot, owner whitelist, commands, formatting, chunking | ⬜ |
-| Agent | `src/agent/` | The loop, OpenAI calls, prompt building, model fallback, history | ⬜ |
-| Soul | `src/soul/` | Load + format `/data/SOUL.md` into the system prompt | ⬜ |
-| Tools | `src/tools/` | Registry + shared tool types + Zod schemas | ⬜ |
-| Tools → browser | `src/tools/browser/` | Playwright lifecycle + actions | ⬜ |
-| Tools → terminal | `src/tools/terminal/` | Allowlisted command execution | ⬜ |
-| Tools → files | `src/tools/files/` | Safe `/tmp` read/write | ⬜ |
-| Tools → search | `src/tools/search/` | Tavily client + result normalization | ⬜ |
-| Summary | `src/summary/` | Build the Telegram task summary text | ⬜ |
-| Security | `src/security/` | Credential sanitization, access checks, safe logging | ⬜ |
-| Storage | `src/storage/` | `/data` session persistence + filesystem helpers | ⬜ |
-| Lib | `src/lib/` | Tiny shared utilities (no Telegram/OpenAI coupling) | ⬜ |
+| Telegram | `src/telegram/` | Bot, owner whitelist, commands, formatting, chunking, merged-message renderer | ✅ |
+| Agent | `src/agent/` | Multi-round loop, OpenAI calls, prompt building, model fallback, history | ✅ |
+| Soul | `src/soul/` | Load + format `/data/SOUL.md` into the system prompt | ✅ |
+| Tools | `src/tools/` | Registry + shared tool types + Zod schemas | ✅ |
+| Tools → browser | `src/tools/browser/` | Playwright lifecycle + actions | ✅ |
+| Tools → terminal | `src/tools/terminal/` | Allowlisted command execution | ✅ |
+| Tools → files | `src/tools/files/` | Safe `/tmp` read/write | ✅ |
+| Tools → search | `src/tools/search/` | Tavily client + result normalization | ✅ |
+| Summary | `src/summary/` | Structured task summary builder (retained, not currently wired) | ✅ (idle) |
+| Security | `src/security/` | Credential sanitization, access checks, safe logging | ✅ |
+| Storage | `src/storage/` | `/data` session persistence + filesystem helpers | ✅ |
+| Lib | `src/lib/` | Tiny shared utilities (no Telegram/OpenAI coupling) | ✅ |
 
 **Why split this way?** So each piece is independently testable and so a security rule
 (like "sanitize tool output") lives in exactly one place. If Telegram formatting and agent
@@ -153,37 +154,46 @@ type ToolResult =
 ## 4. The Agent Loop (the heart of the system)
 
 This is the single most important concept to learn. It is a **bounded ReAct-style loop**
-(Reason → Act → Observe).
+(Reason → Act → Observe), implemented in `src/agent/runner.ts`. Every iteration is one
+model call. Iteration count is shared between the model call and the tool execution it
+triggers.
 
 ```text
 receive Telegram update
 authorize sender                      ← security gate
 load session history                  ← state in
-build model input with SOUL.md        ← prompt assembly
-loop:
-  call OpenAI
-  if final response → break           ← exit condition A
-  if tool calls:
-     validate input (Zod)
-     execute tool (timeout + max output)
-     sanitize observation             ← security gate
-     append observation to history
-  if iterations >= MAX_AGENT_ITERATIONS → stop with graceful message  ← exit condition B
-send final answer to Telegram (chunked)
-build + send task summary
-persist session                       ← state out
+build model input:                    ← prompt assembly
+  security rules
+  optional test-credentials block (when env set)
+  SOUL.md
+  history + tool definitions
+for iter in 0..MAX_AGENT_ITERATIONS:
+  call OpenAI on the active model
+  if no tool_calls → return content   ← exit condition A
+  append assistant message with tool_calls
+  for each tool_call:
+    validate input (Zod)
+    execute (timeout + max output)
+    sanitize observation              ← security gate
+    append as a tool message
+return last content with iterationLimitHit = true   ← exit condition B
+compose merged Telegram message (answer + footer)
+send + persist session                ← state out
 ```
 
 **Why it's bounded:** an unbounded loop could call tools forever (cost, runaway browser
 sessions, infinite spend). `MAX_AGENT_ITERATIONS` (default `8`) is the safety valve. When
-hit, the user sees `Tool limit reached.` (from `ui-context.md`).
+hit, the merged message footer surfaces `Stopped at iteration limit — break the task into
+smaller steps.`
 
 **Loop invariants** (from `architecture.md`):
 - Each tool has its **own** timeout.
 - Tool output is **truncated** to `MAX_TOOL_OUTPUT_CHARS` (default `12000`).
 - Every external input is validated **before** it enters agent state.
 - All model-visible tool output is **sanitized**.
-- The loop returns a graceful error message when a limit is reached (never a raw crash).
+- Fallback to `OPENAI_FALLBACK_MODEL` happens only on the **first** call. Once any tool
+  result is in the conversation, the active model is locked.
+- The loop returns a graceful message when the iteration limit is reached (never a raw crash).
 
 ---
 
@@ -390,18 +400,22 @@ before storing/sending), and #5 (`SOUL.md` can't override security).
 
 ## 11. Build Status & Reading Order
 
-**Built today:** `src/index.ts` (startup + shutdown skeleton), `src/config/env.ts`
-(Zod env validation + redacted summary). Full folder tree scaffolded, Vitest green,
-`npm run build` passes.
+**Built today:** Milestones 1–8 complete. The bot is live on Railway with a mounted
+`/data` volume, an uploaded custom `SOUL.md`, and 9 tools registered. The agent runner
+is a true multi-round loop bounded by `MAX_AGENT_ITERATIONS`. Each completed task
+delivers exactly one merged Telegram message.
 
 **Build sequence** (from `ai-workflow-rules.md`):
-1. ✅ Foundation → 2. Telegram shell → 3. SOUL + sessions → 4. OpenAI agent loop →
-5. Tool registry → 6. File + terminal tools → 7. Browser tool → 8. Web search →
-9. Telegram task summary → 10. Railway deploy.
+1. ✅ Foundation → 2. ✅ Telegram shell → 3. ✅ SOUL + sessions → 4. ✅ OpenAI agent loop →
+5. ✅ Tool registry → 6. ✅ File + terminal tools → 7. ✅ Browser tool → 8. ✅ Web search →
+9. ✅ Telegram task response (consolidated to a single merged message during M8) →
+10. ✅ Railway deploy.
 
-**Suggested reading order to learn the codebase as it grows:**
-`config/env.ts` → `telegram/` (middleware first) → `agent/runner.ts` (the loop) →
-`tools/registry.ts` → individual tools → `security/sanitize.ts` → `summary/`.
+**Suggested reading order to learn the codebase:**
+`config/env.ts` → `telegram/` (middleware + bot.ts merged-message handler) →
+`agent/prompt.ts` (system-prompt order: security → test creds → SOUL) →
+`agent/runner.ts` (the multi-round loop) → `tools/registry.ts` → individual tools →
+`security/sanitize.ts` → `summary/` (idle, retained for reuse).
 
 ---
 

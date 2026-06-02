@@ -18,11 +18,12 @@ Update this file after every meaningful implementation change.
 - ✅ Milestone 4 (OpenAI Agent Loop) complete.
 - ✅ Milestone 5 (Tool Registry) complete.
 - ✅ Milestone 6 (Core Tools) complete and fully tested.
-- ✅ Milestone 7 (Telegram Task Summary) complete.
+- ✅ Milestone 7 (Telegram Task Summary) complete (later consolidated — see M8 notes).
+- ✅ Milestone 8 (Railway Deployment) complete. Bot is live for the whitelisted owner.
 
 ## Current Goal
 
-- ✅ Milestone 7 complete. Next: Railway deployment (Milestone 8).
+- All milestones from the original plan are complete. Bot is in active personal use. Future work is incremental hardening and feature requests as they come up.
 
 ## Completed
 
@@ -40,17 +41,24 @@ Update this file after every meaningful implementation change.
 - ✅ **Milestone 4: OpenAI Agent Loop** — Full OpenAI integration with client wrapper, security-first + SOUL system prompts, primary/fallback handling, per-chat model switching via /model, and real responses for owner messages. Exit criteria met: owners get model answers, /model works for switching, fallback tested with mocks.
 - ✅ **Milestone 5: Tool Registry** — Complete shared tool interface, Zod-validated registry, safe execution (timeout + truncation), credential sanitization on all outputs, and agent runner support for tool calling. Exit criteria met: registry can be called, invalid calls fail safely, results are sanitized before reaching the model.
 - ✅ **Milestone 6: Core Tools** — All 9 production tools implemented and registered (file_read, file_write, terminal_exec, web_search, browser_navigate/click/fill/screenshot/extract_text). Dedicated unit tests for files (traversal + integration), terminal (allowlist + cwd sandbox + sibling-prefix bypass), and search (mocked Tavily, error paths, key non-leakage). Registry now honors MAX_TOOL_OUTPUT_CHARS from env. Bot `/start` + `/help` updated to reflect live capabilities.
-- ✅ **Milestone 7: Telegram Task Summary** — `buildTaskSummary` implemented in `src/summary/mod.ts` producing the exact required structure (short title, one-paragraph Result, Tools used, Caveats, optional Next steps). Full credential sanitization on the summary and all outgoing Telegram responses. Automatic delivery after every agent task using "Working on it...", "Done.", and "Done with issues." + existing chunking. 9 dedicated unit tests covering construction, sanitization, caveats, and edges. Wired into the message handler via DI; /help and /status updated. All 83 tests green, strict TypeScript, zero secret leakage.
+- ✅ **Milestone 7: Telegram Task Summary** — `buildTaskSummary` implemented in `src/summary/mod.ts` producing the exact required structure (short title, one-paragraph Result, Tools used, Caveats, optional Next steps). Full credential sanitization on the summary and all outgoing Telegram responses. Originally delivered as a separate "Working on it..." / "Done." / summary message. **Consolidated during M8** into a single merged Telegram message (answer + compact `—` footer with tools used / failures / iteration-limit notice) because the structured summary repeated the answer paragraph on mobile. The 9 unit tests for `buildTaskSummary` still pass; the function is retained for potential future reuse but is not currently wired into the bot.
+- ✅ **Milestone 8: Railway Deployment** — Multi-stage Dockerfile (Node 20 builder → `mcr.microsoft.com/playwright:v1.52.0-jammy` runtime, deps pruned, browser download skipped in builder). `.dockerignore` excludes `.env*`, runtime data, tests, docs, and editor noise. Repo pushed to GitHub; Railway service deploys from `main` automatically. Persistent volume mounted at `/data`. Custom `SOUL.md` uploaded to `/data/SOUL.md` via `railway ssh` after registering the local SSH key with Railway. All required env vars configured in Railway Variables. Bot is online and operational for the whitelisted owner.
+- ✅ **Multi-round tool loop** — `runAgent` rewritten as a true bounded `for` loop over `MAX_AGENT_ITERATIONS`. Each iteration is one model call; tool results append and another iteration runs until the model returns a tool-free answer or the limit is hit. Fallback to `OPENAI_FALLBACK_MODEL` is now first-iteration-only (after any tool result, the active model is locked). `iterationLimitHit` is surfaced in the merged-message footer. All 94 tests pass.
+- ✅ **Test credentials feature** — `TEST_ACCOUNT_EMAIL` / `TEST_ACCOUNT_PASSWORD` optional env pair. When both are set, the agent receives them through an elevated-priority block in the system prompt (above SOUL, equal priority to security rules) with strict no-echo policy. Both literal values are registered with the central sanitizer at startup so any leak is redacted to `[REDACTED]`. Credentials are never accepted from chat input; the agent refuses any flow that would require the owner to type them. Used silently inside `browser_fill` for live application testing.
 
-## In Progress
+## Recently Completed
 
-- ⬜ Milestone 8: Railway Deployment (Dockerfile, Playwright deps, volume setup, production validation).
+- Single merged Telegram response per task (replaces 3-message flow).
+- True multi-round agent loop bounded by `MAX_AGENT_ITERATIONS`.
+- Test-credentials block (`TEST_ACCOUNT_EMAIL` / `TEST_ACCOUNT_PASSWORD`) wired through prompt + sanitizer.
+- Railway deployment with Dockerfile, `/data` volume, and custom SOUL.md uploaded over SSH.
 
-## Next Up
+## Next Up (incremental, no fixed schedule)
 
-- Railway deployment (Dockerfile, volumes, startup validation) — Milestone 8
-- Optional: extend agent runner to use MAX_AGENT_ITERATIONS for true multi-round tool loops
-- Review and potentially broaden the terminal command allowlist when real workloads need it
+- Review and potentially broaden the terminal command allowlist when real workloads need it.
+- Decide whether to re-wire the structured summary builder into a separate channel (digest / log / per-task artifact) or remove it.
+- Optional: webhook mode in front of long-polling once a public hostname is justified.
+- Optional: hot reload of `SOUL.md` without a redeploy.
 
 ## Implementation Milestones
 
@@ -127,12 +135,16 @@ Update this file after every meaningful implementation change.
 - ✅ 9 dedicated unit tests in `tests/summary/summary.test.ts` (structure, caveats, sanitization, edge cases)
 - ✅ Wired into message handler + DI; /help and /status updated; 83 tests green
 
-### ⬜ Milestone 8: Railway Deployment
+### ✅ Milestone 8: Railway Deployment
 
-- ⬜ Dockerfile
-- ⬜ Playwright/Chromium dependencies
-- ⬜ Railway volume documentation
-- ⬜ production startup validation
+- ✅ Multi-stage `Dockerfile` (Node 20 builder, Playwright Jammy runtime, dev deps pruned, `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` in builder)
+- ✅ Playwright/Chromium dependencies bundled via `mcr.microsoft.com/playwright:v1.52.0-jammy`
+- ✅ `.dockerignore` excludes secrets, runtime data, tests, docs
+- ✅ Railway service deploys from GitHub `main` (auto-deploy on push)
+- ✅ Persistent volume attached and mounted at `/data`
+- ✅ All required env vars configured in Railway Variables; missing-var crash on first deploy confirmed fail-fast behavior works
+- ✅ Custom `SOUL.md` uploaded to `/data/SOUL.md` via `railway ssh "cat > /data/SOUL.md" < ./SOUL.md` after registering the local SSH key with Railway
+- ✅ Production startup validated: env loaded, SOUL loaded from volume, browser initialized, bot polling, owner can interact
 
 ## Open Questions
 
@@ -141,8 +153,9 @@ Update this file after every meaningful implementation change.
 - 🔵 Resolved: v1 will use Telegram-only task summaries. No GitHub repo, no file persistence for reports.
 - 🔵 Resolved (M6): Initial terminal allowlist scoped to safe diagnostics — `pwd, ls, echo, date, node, npm, which, cat, head, tail, wc, find`. Will broaden only when a real workload requires it.
 - 🔵 Resolved (M3): Missing `/data/SOUL.md` creates a safe default template and logs a warning (does not fail startup).
-- ⬜ Should the first Railway deployment use Telegram long polling or webhook mode? Polling is simpler for v1.
-- ⬜ Should `MAX_AGENT_ITERATIONS` drive a true multi-round tool loop in the agent runner? Currently runner handles one tool batch + one follow-up call. Revisit if real tasks need it.
+- 🔵 Resolved (M8): First Railway deployment uses Telegram long polling. Webhook mode can be added later if a public HTTPS endpoint is justified.
+- 🔵 Resolved (M8): `MAX_AGENT_ITERATIONS` now drives a true multi-round tool loop. Each iteration is one model call; fallback is first-iteration-only.
+- 🔵 Resolved (M8): Task response collapsed to a single merged Telegram message (answer + footer) instead of `Working on it...` / answer / `Done.` + summary. Structured `buildTaskSummary` retained for potential future reuse.
 
 ## Architecture Decisions
 
@@ -170,5 +183,10 @@ Update this file after every meaningful implementation change.
 - ✅ 2026-05-30: Completed Milestone 6 (Core Tools). Implemented and registered: file_read/write (path-safe), terminal_exec (narrow allowlist), 5 browser tools (Playwright isolated contexts), web_search (Tavily). Agent can now use real tools. Browser lifecycle managed.
 - ✅ 2026-05-30: M6 hardening + closure. Fixed terminal cwd sibling-prefix bypass with explicit `path.sep` check (`resolveSafeCwd`). Wired `MAX_TOOL_OUTPUT_CHARS` into `ToolRegistry.configure()`. Refreshed bot `/start` + `/help` copy to advertise live agent, sessions, and 9 tools. Added dedicated suites: files (9), terminal (12), search (5 with mocked fetch). 74 tests green, strict TS build clean. M6 is now considered fully complete.
 - ✅ 2026-05-30: Completed Milestone 7 (Telegram Task Summary). Implemented `src/summary/mod.ts` with `buildTaskSummary` (title derivation, one-paragraph result, tools list, caveats for fallback/failures/limits, conservative next-steps). Full sanitization on summary + main content. Integrated "Working on it..." + "Done."/"Done with issues." delivery in message handler with DI. Updated /help and /status. 9 new tests (structure, sanitization, edges) + full suite at 83 passing. All invariants respected. M7 complete; ready for M8 Railway deploy.
-- Next: Milestone 8 — Railway Dockerfile, Playwright Chromium system deps, volume mount at /data, production validation from clean clone.
+- ✅ 2026-06-01 / 2026-06-02: Completed Milestone 8 (Railway Deployment) and shipped two follow-up improvements driven by real owner usage:
+  - **Deploy:** wrote multi-stage Dockerfile (Node 20 builder → Playwright Jammy runtime), `.dockerignore`, pushed to GitHub, connected Railway service, attached `/data` volume, configured env vars, registered local SSH key, and uploaded a custom `SOUL.md` over `railway ssh`.
+  - **Single merged Telegram message:** the original "Working on it..." / answer / "Done." + structured summary flow read as a duplicate reply on mobile because the summary repeated the answer paragraph. Replaced with one merged message: `(used fallback model: ...)` (optional) + answer + optional `—` footer (`Tools: ...`, `Failed: ...`, iteration-limit notice). Updated `/help` to describe the new shape. The structured `buildTaskSummary` and its 9 tests are retained but no longer wired into the bot.
+  - **Multi-round tool loop:** `runAgent` rewritten as a true bounded `for` loop over `MAX_AGENT_ITERATIONS` so the agent can complete real workflows (navigate → fill email → fill password → click submit → navigate to dashboard → screenshot → extract text). Fallback to `OPENAI_FALLBACK_MODEL` is now first-iteration-only — once any tool result is in the conversation, the active model is locked. `iterationLimitHit` is surfaced in the merged-message footer.
+  - **Test credentials feature:** `TEST_ACCOUNT_EMAIL` / `TEST_ACCOUNT_PASSWORD` env pair (already scaffolded in `src/agent/prompt.ts` + `src/index.ts`) confirmed working in production. The agent uses them silently inside `browser_fill` and refuses any flow that would require the owner to send credentials in chat. Both values registered with the central sanitizer.
+  - All 94 tests still pass; strict TypeScript and lint clean. Bot is online for the whitelisted owner.
 - ✅ 2026-06-01: Pinned Playwright **1.60.0** in `package.json` + `mcr.microsoft.com/playwright:v1.60.0-jammy` runtime image (was 1.52.0 in Docker vs 1.60.0 from npm lock — browser version mismatch in production).

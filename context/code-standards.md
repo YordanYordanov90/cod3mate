@@ -32,12 +32,13 @@
 ## OpenAI Integration
 
 - Use the official OpenAI SDK directly.
-- Keep OpenAI client creation in `src/agent/openai-client.ts` or equivalent.
+- Keep OpenAI client creation in `src/agent/client.ts` or equivalent.
 - Do not hardcode final model IDs in business logic; read them from validated config.
-- System prompt construction must be centralized and testable.
+- System prompt construction must be centralized and testable. Order is non-negotiable: security rules → optional test-credentials block → SOUL.
 - `SOUL.md` is injected as part of system instructions on every request.
-- Security rules must be placed above personality guidance in the system prompt.
-- Implement model fallback for recoverable model/API failures only.
+- Security rules must be placed above personality guidance and above any test-credentials block in the system prompt.
+- The agent runner is a true multi-round loop bounded by `MAX_AGENT_ITERATIONS`. Each iteration is one model call; tool results are appended and another iteration runs until the model returns a tool-free answer or the limit is hit.
+- Implement model fallback for recoverable model/API failures only, and only on the first iteration. Once any tool result is in the conversation, the active model is locked.
 - Preserve enough model error detail for debugging while redacting keys and sensitive payloads.
 
 ## GrammY and Telegram
@@ -111,30 +112,34 @@ type ToolResult =
 - Apply rate limit handling and safe error messages.
 - Do not use OpenRouter.
 
-## Task Summary
+## Task Response
 
-- Task summaries are produced as plain Telegram messages, not files.
-- Keep the summary builder in `src/summary/` and free of Telegram client coupling; it returns text only.
-- The summary must include: short title, one-paragraph result, tools used, caveats, and recommended next steps when relevant.
-- Run summaries through credential sanitization before sending.
-- Use the standard Telegram chunking utility for long summaries.
-- Do not write summaries to disk, GitHub, or any external service in this version.
+- Each completed task produces exactly one merged Telegram message (answer + optional `—` footer with tools used, failures, and iteration-limit notice when applicable).
+- Build the merged message inside the Telegram message handler (`src/telegram/bot.ts`), not in the agent runner — keep agent output free of Telegram-specific formatting.
+- Run the merged message through `sanitizeString` before delivery and chunk with `TELEGRAM_CHUNK_SIZE`.
+- The structured summary builder in `src/summary/mod.ts` is retained for potential future reuse (digests, alternative channels) but is not currently wired into the bot. Keep it free of Telegram client coupling so it stays reusable.
+- Never include raw tool output, full logs, or secrets in the response.
+- Do not write responses to disk, GitHub, or any external service in this version.
 
 ## Security
 
 - Centralize redaction in `src/security/sanitize.ts`.
 - Build redaction patterns from:
-  - environment variable values
+  - environment variable values registered via `registerSecret`
   - common API key patterns
   - Telegram bot token shape
   - OpenAI key shape
+  - Tavily key shape
 - Sanitization must run on:
   - logs
   - errors
   - tool outputs
-  - Telegram task summaries
-  - Telegram responses
+  - Telegram responses (merged answer + footer)
   - model-visible observations
+- Optional test credentials (`TEST_ACCOUNT_EMAIL` / `TEST_ACCOUNT_PASSWORD`):
+  - Both values are registered with the sanitizer at startup so any accidental leak is redacted.
+  - They are injected into the system prompt only, with strict no-echo rules.
+  - They are never accepted from chat input or session history.
 - Never write `.env` files into the repository.
 - Provide `.env.example` with names only and safe placeholder values.
 

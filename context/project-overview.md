@@ -10,9 +10,10 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
 2. Support an agent loop that can reason, call tools, observe results, and produce final answers in Telegram.
 3. Integrate OpenAI directly with a primary model and fallback model, including runtime switching through `/model`.
 4. Provide reliable Playwright browser automation inside Railway with Chromium dependencies installed in Docker.
-5. After completing a task, send a clear Telegram message describing what was done, what tools were used, and any follow-up notes. Do not persist reports to files or external services in this version.
+5. After completing a task, send a single merged Telegram message: the answer plus an optional compact footer listing tools used and any failures. No files, no external services in this version.
 6. Persist `SOUL.md`, session state, and lightweight agent data under Railway volume path `/data`.
-7. Sanitize credentials and secrets across logs, tool outputs, model context, task summaries, and Telegram messages.
+7. Sanitize credentials and secrets across logs, tool outputs, model context, task responses, and Telegram messages.
+8. Support secure browser-based login testing through `TEST_ACCOUNT_EMAIL` and `TEST_ACCOUNT_PASSWORD` env vars, never accepted from chat input and always silently used inside `browser_fill`.
 
 ## Core User Flow
 
@@ -75,13 +76,21 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
   - Use Tavily directly through the Tavily API.
   - Return normalized result titles, URLs, snippets, and timestamps when available.
 
-### Task Summary
+### Task Response
 
-- After each completed task, send a Telegram message summarizing what was done.
-- Summary should include: short title, one-paragraph result, tools used, any important caveats, and recommended next steps if relevant.
+- After each completed task, send one merged Telegram message: the agent's answer plus an optional `—` footer.
+- Footer surfaces (only when present): tools that succeeded, tools that failed, fallback model usage, iteration-limit cutoff.
 - No files are saved and no external services are written to in this version.
-- Long summaries are chunked using the standard Telegram chunking rules.
-- A saved/persisted reports system may be added in a later version; it is out of scope here.
+- Long messages are chunked using the standard Telegram chunking rules.
+- The legacy structured summary builder is retained in `src/summary/mod.ts` for potential future reuse (digests, alternative channels).
+
+### Test Credentials (Optional Browser Login)
+
+- `TEST_ACCOUNT_EMAIL` and `TEST_ACCOUNT_PASSWORD` may be configured in Railway / `.env.local`.
+- When both are set, the agent receives them through an elevated-priority block in the system prompt (above SOUL, equal priority to security rules) with strict no-echo policy.
+- Both literal values are registered with the central sanitizer so any accidental leak in tool output, replies, or logs is redacted to `[REDACTED]`.
+- Credentials are never accepted from chat input; the agent refuses any flow that would require the owner to type them into Telegram.
+- Used silently inside `browser_fill` for live application testing (e.g. logging into a deployed site to verify protected pages).
 
 ### Deployment
 
@@ -128,7 +137,7 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
 4. The agent can run a constrained terminal command and return sanitized output.
 5. The agent can read and write a temporary file under `/tmp` while rejecting unsafe paths.
 6. The agent can perform a web search through the configured direct API.
-7. After completing a task, the agent sends a Telegram task summary describing what was done, including tools used and any caveats. Nothing is persisted to files or external services.
+7. After completing a task, the agent sends one merged Telegram message containing the answer and an optional footer with tools used / failures / iteration-limit notice. Nothing is persisted to files or external services.
 8. `/model` can show and switch between primary and fallback configured models.
 9. `SOUL.md` is loaded from `/data` and included in model instructions.
 10. Build, lint, and tests pass before deployment.

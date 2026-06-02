@@ -50,16 +50,17 @@
 
 ## Agent Loop
 
-The agent loop owns all model reasoning and tool orchestration.
+The agent loop owns all model reasoning and tool orchestration. It is a true **multi-round** loop, not a single tool batch + final call.
 
 Required loop constraints:
 
-- Maximum tool iterations per user message defaults to `8`.
+- Maximum tool iterations per user message is sourced from `MAX_AGENT_ITERATIONS` (default `8`). One iteration = one model call.
 - Each tool has an independent timeout.
-- Tool outputs are truncated to a configured max character count.
+- Tool outputs are truncated to `MAX_TOOL_OUTPUT_CHARS`.
 - Every external input is validated before it enters agent state.
 - All model-visible tool output is sanitized.
-- The loop returns a graceful error message if limits are reached.
+- Fallback to `OPENAI_FALLBACK_MODEL` is only attempted on the **first** model call. After any tool result is in the conversation, the active model is locked for the remainder of the loop.
+- When the iteration limit is reached, the loop returns whatever content is available (or a graceful "limit reached" message if none) plus `iterationLimitHit: true` so the bot can surface the cause.
 
 Pseudo-flow:
 
@@ -67,11 +68,14 @@ Pseudo-flow:
 receive Telegram update
 authorize sender
 load session history
-build model input with SOUL.md
-call OpenAI
-if final response: send to Telegram
-if tool calls: validate, execute, sanitize, append observations
-repeat until final response or limit
+build model input with security rules + optional test creds + SOUL.md
+for iter in 0..maxIterations:
+  call OpenAI on the active model
+  if no tool_calls: return final content
+  append assistant message with tool_calls
+  for each tool_call:
+    validate input (Zod), execute with timeout + max output, sanitize result, append as tool message
+return last content with iterationLimitHit = true
 persist session
 ```
 
@@ -113,6 +117,7 @@ Optional environment variables:
 - `TELEGRAM_CHUNK_SIZE`, default `3500`
 - `LOG_LEVEL`, default `info`
 - `ENABLE_FILE_LOGS`, default `false`
+- `TEST_ACCOUNT_EMAIL` and `TEST_ACCOUNT_PASSWORD` — optional pair. When both are set, the agent receives them through an elevated-priority block in the system prompt for browser-based login flows only. Both values are registered with the central sanitizer at startup, must never be echoed in any output, and are not accepted from chat input. When unset, the bot refuses any login flow that would require credentials from the user.
 
 Model defaults:
 
@@ -156,26 +161,26 @@ Initial tools:
 - `file_write`
 - `web_search`
 
-## Task Summary Architecture
+## Task Response Architecture
 
-Task summaries are a Telegram-only output. They are not persisted in this version.
+Each completed task produces **one merged Telegram message**: the agent's answer followed by an optional compact metadata footer. There is no separate "Working on it..." preamble and no separate "Done." / structured summary message — those were collapsed during M8 because the structured summary repeated the answer on mobile.
 
-Summary flow:
+Response flow:
 
-1. Agent finishes a task.
-2. Summary module builds a Telegram-friendly message from the final answer, tools used, and any caveats.
-3. Summary passes through credential sanitization.
-4. Telegram formatter chunks the message if needed and sends it to the owner.
+1. The bot receives a non-command message from the verified owner.
+2. The agent loop runs (multi-round, bounded by `MAX_AGENT_ITERATIONS`).
+3. The bot composes a single message containing:
+   - An optional `(used fallback model: <id>)` line when the fallback model produced the answer.
+   - The agent's final content.
+   - An optional footer separated by `—`, containing any of:
+     - `Tools: <comma-separated tools that succeeded>`
+     - `Failed: <comma-separated tools that failed>`
+     - `Stopped at iteration limit — break the task into smaller steps.` when `iterationLimitHit` is true.
+4. The merged message passes through `sanitizeString` and is chunked with `TELEGRAM_CHUNK_SIZE`.
 
-Summary should include:
+The full structured summary builder still lives in `src/summary/mod.ts` (with its 9 tests) but is no longer wired into the bot. It is retained as a reusable building block in case a future channel (digest, log, alternative renderer) needs it.
 
-- Short task title or topic.
-- One-paragraph result.
-- Tools used during the task.
-- Any important caveats or failed steps.
-- Recommended next steps when relevant.
-
-Persisted reports to GitHub, databases, or object storage are explicitly out of scope for this version. If reintroduced later, this section and `progress-tracker.md` must be updated first.
+Persisted reports to GitHub, databases, or object storage remain out of scope. If reintroduced, update this section and `progress-tracker.md` first.
 
 ## Deployment Architecture
 
@@ -197,7 +202,7 @@ Polling mode is acceptable for the first deployment because it avoids a public w
 4. Terminal execution must be bounded by timeout, output length, and command policy.
 5. `SOUL.md` is instruction context only; it must not override security, tool, or access-control rules.
 6. Tool outputs must be sanitized before being stored or sent to the model.
-7. Task summaries are Telegram-only in this version and must not be written to files or external services.
+7. Task responses are Telegram-only in this version and must not be written to files or external services. Each completed task delivers exactly one merged message (answer + optional metadata footer).
 8. Model IDs must be configurable through environment variables rather than hardcoded into business logic.
 9. Browser resources must be reused or closed cleanly to avoid memory leaks in the Railway container.
 10. Implementation must remain deployable from a clean clone with environment variables and a mounted `/data` volume.

@@ -150,21 +150,22 @@ Exit criteria:
 - Agent can call search and receive normalized source-backed results.
 - No OpenRouter dependency exists.
 
-### Phase 9: Telegram Task Summary
+### Phase 9: Telegram Task Response
 
-1. Define the Telegram task summary structure (title, result paragraph, tools used, caveats, next steps).
-2. Implement a summary builder that consumes the agent loop's final state.
-3. Run the summary through credential sanitization.
-4. Use the standard Telegram chunking utility to deliver the message.
-5. Add unit tests for summary construction and sanitization.
+Initial implementation produced a separate "Working on it..." preamble, the answer, and a structured `Done.` / `Done with issues.` summary. Mobile testing during M8 showed this read as a duplicate reply (the summary repeated the answer paragraph). Phase 9 was therefore consolidated:
+
+1. Each completed task produces **one merged Telegram message**: the agent's answer plus an optional `—` footer (`Tools: ...`, `Failed: ...`, fallback notice, iteration-limit notice).
+2. Build the merged message in the Telegram message handler. The agent runner stays Telegram-agnostic.
+3. Run the merged message through `sanitizeString` before delivery and chunk it with `TELEGRAM_CHUNK_SIZE`.
+4. The structured `buildTaskSummary` from `src/summary/mod.ts` is retained for potential future reuse (digests, alternative channels) but is no longer wired into the bot.
 
 Exit criteria:
 
-- After a completed task, the owner receives a clear Telegram message describing what was done.
-- No files are written and no external services are called for the summary.
-- Long summaries are chunked safely.
+- After a completed task, the owner receives exactly one Telegram message describing the result, with the footer surfacing only the metadata that adds value.
+- No files are written and no external services are called.
+- Long messages are chunked safely.
 
-Out of scope for this phase: GitHub persistence, Markdown report files, `/report` command, and any persisted report archive. These may be revisited in a future version with explicit context updates first.
+Out of scope: GitHub persistence, Markdown report files, `/report` command, and any persisted report archive.
 
 ### Phase 10: Railway Deployment
 

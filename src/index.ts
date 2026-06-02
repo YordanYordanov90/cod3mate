@@ -161,6 +161,7 @@ async function main() {
         fallbackModel: env.OPENAI_FALLBACK_MODEL,
         selectedModel: args.selectedModel ?? null,
         enableTools: true,
+        maxIterations: env.MAX_AGENT_ITERATIONS,
         testCredentials,
       },
       { openai }
