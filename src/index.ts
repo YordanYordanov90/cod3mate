@@ -114,6 +114,7 @@ async function main() {
   toolRegistry.register(browserTools.fill);
   toolRegistry.register(browserTools.screenshot);
   toolRegistry.register(browserTools.extractText);
+  toolRegistry.register(browserTools.reset);
 
   console.log(`[startup] Registered ${toolRegistry.listNames().length} core tools: ${toolRegistry.listNames().join(', ')}`);
 
