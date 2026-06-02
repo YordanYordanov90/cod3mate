@@ -101,7 +101,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       '• Tool output is timeout-bounded, truncated, and sanitized',
       '  (API keys, tokens, and similar secrets are redacted)',
       '',
-      'Task summaries: automatic structured summary (Done. / Done with issues.) sent after every agent task, with tools used and caveats.',
+      'Responses: a single message containing the answer plus a compact footer with tools used and any failures.',
       '',
       'Use /status for current configuration.',
     ].join('\n');
@@ -229,43 +229,34 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     const session = await loadSession(chatId);
 
     try {
-      // 3. Signal that a (potentially tool-using) task is running
-      await sendSafe(ctx, 'Working on it...', env.TELEGRAM_CHUNK_SIZE);
-
-      // 4. Run the agent
       const agentResult = await runAgent({
         history: session.history.map((m) => ({ role: m.role, content: m.content })),
         selectedModel: session.selectedModel ?? null,
       });
 
-      // 5. Persist the assistant reply
       await appendMessage(chatId, 'assistant', agentResult.content);
 
-      // 6. Send the primary response (the actual answer to the user), sanitized
-      const prefix = agentResult.usedFallback
-        ? `(used fallback model: ${agentResult.modelUsed})\n\n`
-        : '';
-      const mainContent = prefix + agentResult.content;
-      await sendSafe(ctx, sanitizeString(mainContent), env.TELEGRAM_CHUNK_SIZE);
+      // Build a single merged message: answer + compact metadata footer.
+      const sections: string[] = [];
 
-      // 7. M7: deliver structured task summary (builder handles its own sanitization)
-      if (deps.buildTaskSummary) {
-        const summaryInput: TaskSummaryInput = {
-          userRequest: userText,
-          result: agentResult.content,
-          toolsUsed: agentResult.toolCallsExecuted,
-          usedFallback: agentResult.usedFallback,
-          modelUsed: agentResult.modelUsed,
-        };
-        const summaryText = deps.buildTaskSummary(summaryInput);
-
-        const hasIssues =
-          agentResult.usedFallback ||
-          (agentResult.toolCallsExecuted ?? []).some((t) => !t.success);
-        const status = hasIssues ? 'Done with issues.' : 'Done.';
-
-        await sendSafe(ctx, `${status}\n\n${summaryText}`, env.TELEGRAM_CHUNK_SIZE);
+      if (agentResult.usedFallback) {
+        sections.push(`(used fallback model: ${agentResult.modelUsed})`);
       }
+
+      sections.push(agentResult.content);
+
+      const tools = agentResult.toolCallsExecuted ?? [];
+      if (tools.length > 0) {
+        const successful = tools.filter((t) => t.success).map((t) => t.name);
+        const failed = tools.filter((t) => !t.success).map((t) => t.name);
+        const footer: string[] = [];
+        if (successful.length > 0) footer.push(`Tools: ${successful.join(', ')}`);
+        if (failed.length > 0) footer.push(`Failed: ${failed.join(', ')}`);
+        if (footer.length > 0) sections.push(`—\n${footer.join('\n')}`);
+      }
+
+      const merged = sections.join('\n\n');
+      await sendSafe(ctx, sanitizeString(merged), env.TELEGRAM_CHUNK_SIZE);
     } catch (err: unknown) {
       const apiErr = err as { status?: number; code?: string; message?: string };
       console.error('[agent] Error processing message:', {

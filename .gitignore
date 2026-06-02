@@ -31,3 +31,5 @@ tmp/
 *.tgz
 *.tar.gz
 coverage/
+
+SOUL.md
