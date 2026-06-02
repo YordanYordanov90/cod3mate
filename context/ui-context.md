@@ -74,6 +74,8 @@ Rules:
 
 ## Status Messages
 
+While the agent is working on a normal message, the bot sends Telegram's native **typing** chat action (`sendChatAction: typing`), refreshed every 4 seconds until the reply is sent. This shows "typing..." in the chat header without adding extra messages.
+
 The bot speaks through the merged response message itself, not through status preambles. Reserved status phrases that may still appear inside the answer or in error paths:
 
 - `Stopped at iteration limit — break the task into smaller steps.` — surfaced in the footer when the agent exits the loop because `MAX_AGENT_ITERATIONS` was reached.

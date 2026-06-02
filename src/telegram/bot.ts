@@ -234,6 +234,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     // 2. Load latest history for context
     const session = await loadSession(chatId);
 
+    const stopTyping = startTypingIndicator(ctx);
     try {
       const agentResult = await runAgent({
         history: session.history.map((m) => ({ role: m.role, content: m.content })),
@@ -278,6 +279,8 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
         'Sorry, I encountered an error while talking to the model. Please try again or use /status.',
         env.TELEGRAM_CHUNK_SIZE
       );
+    } finally {
+      stopTyping();
     }
   });
 
@@ -305,6 +308,38 @@ export function startBot(bot: Cod3mateBot): () => Promise<void> {
   return async () => {
     console.log('[telegram] Stopping bot...');
     await bot.stop();
+  };
+}
+
+/** Telegram clears the typing action after ~5s; refresh while the agent is busy. */
+const TYPING_REFRESH_MS = 4_000;
+
+/**
+ * Show "typing..." in the chat header until `stop()` is called.
+ * Refreshes on an interval so long tool/browser runs stay visibly in progress.
+ */
+function startTypingIndicator(ctx: Context): () => void {
+  const chatId = ctx.chat?.id;
+  if (!chatId) {
+    return () => {};
+  }
+
+  let stopped = false;
+
+  const sendTyping = () => {
+    void ctx.api.sendChatAction(chatId, 'typing').catch(() => {
+      // Non-fatal: rate limits or transient network errors must not abort the task.
+    });
+  };
+
+  sendTyping();
+  const timer = setInterval(() => {
+    if (!stopped) sendTyping();
+  }, TYPING_REFRESH_MS);
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
   };
 }
 
