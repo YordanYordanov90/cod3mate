@@ -72,7 +72,7 @@ async function resetBrowserPage(): Promise<void> {
 
 export interface BrowserTools {
   navigate: Tool<{ url: string }>;
-  click: Tool<{ selector: string }>;
+  click: Tool<{ selector?: string; text?: string }>;
   fill: Tool<{ selector: string; value: string }>;
   screenshot: Tool<{ path?: string; fullPage?: boolean }>;
   extractText: Tool<{ selector?: string }>;
@@ -90,6 +90,14 @@ interface FrameInputInfo {
     id: string | null;
     placeholder: string | null;
     label: string | null;
+    visible: boolean;
+  }>;
+  clickables: Array<{
+    tag: string;
+    type: string | null;
+    text: string | null;
+    id: string | null;
+    name: string | null;
     visible: boolean;
   }>;
   forms: number;
@@ -129,6 +137,101 @@ async function resolveLocatorAcrossFrames(
   );
 }
 
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+interface ClickResolveOptions {
+  selector?: string | undefined;
+  text?: string | undefined;
+}
+
+interface ResolvedClickable {
+  locator: Locator;
+  strategy: string;
+}
+
+/**
+ * Resolve a clickable element from either a raw CSS/Playwright selector or a
+ * visible-text description, searching the main page and every child frame.
+ *
+ * Text resolution is the key UX win: auth widgets (Clerk, Auth0, Stripe) label
+ * their primary button as "Continue" / "Sign in" with no stable CSS hook, so
+ * the agent can just say what the button says instead of guessing selectors.
+ *
+ * Strategy order per frame (most robust first):
+ *   1. explicit selector (if provided)
+ *   2. accessible role "button" by name
+ *   3. accessible role "link" by name
+ *   4. <button> containing the text
+ *   5. any element containing the text
+ *
+ * A fast pass checks current visibility instantly; if nothing matches we fall
+ * back to a bounded waiting pass for elements that appear asynchronously.
+ */
+async function resolveClickableAcrossFrames(
+  page: Page,
+  opts: ClickResolveOptions,
+  timeoutPerCandidate: number
+): Promise<ResolvedClickable> {
+  if (!opts.selector && !opts.text) {
+    throw new Error('Provide either a "selector" or a "text" to click.');
+  }
+
+  const frames: Frame[] = page.frames();
+
+  const buildCandidates = (frame: Frame): Array<{ label: string; locator: Locator }> => {
+    const list: Array<{ label: string; locator: Locator }> = [];
+    if (opts.selector) {
+      list.push({ label: `selector="${opts.selector}"`, locator: frame.locator(opts.selector).first() });
+    }
+    if (opts.text) {
+      const t = opts.text;
+      const rx = new RegExp(escapeForRegex(t), 'i');
+      list.push({ label: `role=button name~="${t}"`, locator: frame.getByRole('button', { name: rx }).first() });
+      list.push({ label: `role=link name~="${t}"`, locator: frame.getByRole('link', { name: rx }).first() });
+      list.push({ label: `button:has-text("${t}")`, locator: frame.locator('button', { hasText: rx }).first() });
+      list.push({ label: `text~="${t}"`, locator: frame.getByText(rx).first() });
+    }
+    return list;
+  };
+
+  const frameLabel = (frame: Frame): string =>
+    frame === page.mainFrame() ? '[main page]' : frame.url() || '[frame]';
+
+  const attempts: string[] = [];
+
+  // Fast pass: use whatever is already visible in the DOM right now.
+  for (const frame of frames) {
+    for (const cand of buildCandidates(frame)) {
+      const visible = await cand.locator.isVisible().catch(() => false);
+      if (visible) {
+        return { locator: cand.locator, strategy: `${cand.label} in ${frameLabel(frame)}` };
+      }
+    }
+  }
+
+  // Slow pass: wait for asynchronously-rendered elements, bounded per candidate.
+  for (const frame of frames) {
+    for (const cand of buildCandidates(frame)) {
+      try {
+        await cand.locator.waitFor({ state: 'visible', timeout: timeoutPerCandidate });
+        return { locator: cand.locator, strategy: `${cand.label} in ${frameLabel(frame)}` };
+      } catch {
+        attempts.push(`${cand.label} @ ${frameLabel(frame)}`);
+      }
+    }
+  }
+
+  throw new Error(
+    `No visible clickable element matched ${opts.selector ? `selector "${opts.selector}"` : ''}${
+      opts.selector && opts.text ? ' or ' : ''
+    }${opts.text ? `text "${opts.text}"` : ''}. ` +
+      `Run browser_inspect_form to see the exact buttons/links (it prints a ready-to-use click argument for each). ` +
+      `Tried ${attempts.length} strategies: ${attempts.slice(0, 12).join(' | ')}`
+  );
+}
+
 // Browser-side script. Passed as a string so the Node-side TS compiler does
 // not try to type-check DOM globals (this project's lib is ES2022 only).
 const COLLECT_INPUTS_SCRIPT = `
@@ -154,6 +257,18 @@ const COLLECT_INPUTS_SCRIPT = `
     if (aria) return aria.trim();
     return null;
   }
+  function clickableText(el) {
+    if (el.tagName === 'INPUT') {
+      return (el.value || el.getAttribute('aria-label') || '').trim() || null;
+    }
+    const txt = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (txt) return txt.slice(0, 80);
+    const aria = el.getAttribute('aria-label');
+    if (aria) return aria.trim().slice(0, 80);
+    const title = el.getAttribute('title');
+    if (title) return title.trim().slice(0, 80);
+    return null;
+  }
   const fieldEls = Array.from(document.querySelectorAll('input, textarea, select'));
   const inputs = fieldEls.slice(0, 30).map((el) => ({
     tag: el.tagName.toLowerCase(),
@@ -164,6 +279,24 @@ const COLLECT_INPUTS_SCRIPT = `
     label: labelFor(el),
     visible: isVisible(el),
   }));
+  const clickableEls = Array.from(
+    document.querySelectorAll('button, a[href], input[type="submit"], input[type="button"], input[type="reset"], [role="button"], [role="link"]')
+  );
+  const seen = new Set();
+  const clickables = [];
+  for (const el of clickableEls) {
+    if (seen.has(el)) continue;
+    seen.add(el);
+    clickables.push({
+      tag: el.tagName.toLowerCase(),
+      type: el.tagName === 'INPUT' ? (el.type || null) : null,
+      text: clickableText(el),
+      id: el.id || null,
+      name: el.getAttribute('name'),
+      visible: isVisible(el),
+    });
+    if (clickables.length >= 30) break;
+  }
   const iframes = Array.from(document.querySelectorAll('iframe'))
     .slice(0, 10)
     .map((f) => (f.getAttribute('src') || '').slice(0, 200));
@@ -171,6 +304,7 @@ const COLLECT_INPUTS_SCRIPT = `
     frameUrl: location.href,
     isMainFrame: window.top === window,
     inputs,
+    clickables,
     forms: document.querySelectorAll('form').length,
     iframes,
   };
@@ -201,6 +335,26 @@ function formatInspectionReport(infos: FrameInputInfo[]): string {
           i.visible ? 'visible' : 'hidden',
         ].filter(Boolean);
         lines.push(`  - ${parts.join(' ')}`);
+      }
+    }
+    if (info.clickables.length === 0) {
+      lines.push('Clickables: none detected.');
+    } else {
+      lines.push('Clickables (buttons/links) — pass the suggested arg to browser_click:');
+      for (const c of info.clickables) {
+        const desc = [
+          `<${c.tag}${c.type ? ` type="${c.type}"` : ''}>`,
+          c.text ? `text="${c.text}"` : '(no text)',
+          c.id ? `id="${c.id}"` : '',
+          c.name ? `name="${c.name}"` : '',
+          c.visible ? 'visible' : 'hidden',
+        ].filter(Boolean);
+        let suggestion: string;
+        if (c.text) suggestion = `click { text: "${c.text}" }`;
+        else if (c.id) suggestion = `click { selector: "#${c.id}" }`;
+        else if (c.name) suggestion = `click { selector: "${c.tag}[name='${c.name}']" }`;
+        else suggestion = `click { selector: "${c.tag}" }`;
+        lines.push(`  - ${desc.join(' ')}  ->  ${suggestion}`);
       }
     }
     if (info.iframes.length > 0) {
@@ -240,18 +394,26 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
     },
   };
 
-  const click: Tool<{ selector: string }> = {
+  const click: Tool<{ selector?: string; text?: string }> = {
     name: 'browser_click',
     description:
-      'Click an element on the current page. Searches the main page and all child iframes (Clerk/Auth0/Stripe widgets are usually inside iframes).',
-    inputSchema: z.object({
-      selector: z.string().min(1).describe('CSS selector for the element to click'),
-    }),
-    execute: async ({ selector }) => {
+      'Click a button, link, or element on the current page. Prefer the "text" argument with the element\'s visible label (e.g. text="Continue", text="Sign in") — this is the most reliable way to hit auth buttons (Clerk/Auth0/Stripe) that have no stable CSS hook. Use "selector" for a precise CSS target. Provide at least one of them. Searches the main page and all child iframes. Run browser_inspect_form first if unsure what to click.',
+    inputSchema: z
+      .object({
+        selector: z.string().optional().describe('CSS selector for the element to click'),
+        text: z
+          .string()
+          .optional()
+          .describe('Visible text/label of the button or link to click (case-insensitive, partial match), e.g. "Continue"'),
+      })
+      .refine((v) => Boolean(v.selector || v.text), {
+        message: 'Provide either "selector" or "text".',
+      }),
+    execute: async ({ selector, text }) => {
       const page = await getOrCreatePage(tmpDir, headless);
-      const locator = await resolveLocatorAcrossFrames(page, selector, 5000);
+      const { locator, strategy } = await resolveClickableAcrossFrames(page, { selector, text }, 5000);
       await locator.click();
-      return { ok: true, content: `Clicked element: ${selector}` };
+      return { ok: true, content: `Clicked element via ${strategy}` };
     },
   };
 
@@ -326,7 +488,7 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
   const inspectForm: Tool<Record<string, never>> = {
     name: 'browser_inspect_form',
     description:
-      'List input/textarea/select fields on the current page and inside any iframes, with their name, type, placeholder, label, and visibility. Use this BEFORE browser_fill on unfamiliar pages (especially auth pages with Clerk/Auth0/Stripe iframes) to find the right selector.',
+      'List the input/textarea/select fields AND the clickable buttons/links on the current page and inside any iframes, with their name, type, text, label, and visibility. For each clickable it prints a ready-to-use browser_click argument. Use this BEFORE browser_fill or browser_click on unfamiliar pages (especially auth pages with Clerk/Auth0/Stripe iframes) to find the right selector or button text.',
     inputSchema: z.object({}),
     execute: async () => {
       const page = await getOrCreatePage(tmpDir, headless);
@@ -345,6 +507,7 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
         metadata: {
           frameCount: infos.length,
           totalInputs: infos.reduce((sum, i) => sum + i.inputs.length, 0),
+          totalClickables: infos.reduce((sum, i) => sum + i.clickables.length, 0),
         },
       };
     },
