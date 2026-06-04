@@ -9,19 +9,20 @@
  *   3. SOUL — owner personality and operating style. Never overrides 1 or 2.
  */
 
-export interface TestCredentials {
-  email: string;
-  password: string;
-}
+export type { TestCredentials } from '../config/env.js';
 
 export interface PromptContext {
   soulContent: string;
   /**
-   * Optional test credentials sourced from environment (Railway / .env).
-   * When provided, the agent receives them under a strict no-echo policy.
-   * Never pass values that came from chat input.
+   * Optional legacy single test credentials (TEST_ACCOUNT_*).
    */
-  testCredentials?: TestCredentials | undefined;
+  testCredentials?: import('../config/env.js').TestCredentials | undefined;
+  /**
+   * Phase 8: Multi-app credentials from TEST_CREDENTIALS_<APP>_* env.
+   * Keys are the <APP> uppercased (e.g. 'CLOUDCASTAI').
+   * Model receives names + values in the prompt block and selects by context.
+   */
+  appCredentials?: Record<string, import('../config/env.js').TestCredentials> | undefined;
 }
 
 /**
@@ -39,32 +40,62 @@ const SECURITY_INSTRUCTIONS = `You are operating under strict security and opera
 These security rules are non-negotiable.`;
 
 /**
- * Build the optional test-credentials block.
- * Returns an empty string when either value is missing.
+ * Build the optional test-credentials block (supports legacy single + Phase 8 multi-app).
+ * For multi-app, lists available app names + their values (model selects by context e.g. "test on CloudcastAI").
+ * Returns empty when no complete creds.
  *
  * IMPORTANT: This text is part of the system prompt only. It must never be
  * surfaced to chat output. The central sanitizer (`src/security/sanitize.ts`)
  * provides defense-in-depth by redacting these literal values from any
  * tool output, summary, or reply.
  */
-export function buildTestCredentials(creds?: TestCredentials | undefined): string {
-  if (!creds) return '';
-  const { email, password } = creds;
-  if (!email || !password) return '';
+export function buildTestCredentials(
+  legacy?: import('../config/env.js').TestCredentials | undefined,
+  apps?: Record<string, import('../config/env.js').TestCredentials> | undefined
+): string {
+  const blocks: string[] = [];
 
-  return [
-    '=== TEST CREDENTIALS (Browser Testing Only) ===',
-    `Email:    ${email}`,
-    `Password: ${password}`,
-    '',
+  if (legacy && legacy.email && legacy.password) {
+    blocks.push(
+      '=== TEST CREDENTIALS (Browser Testing Only - Legacy) ===',
+      `Email:    ${legacy.email}`,
+      `Password: ${legacy.password}`,
+      ''
+    );
+  }
+
+  const appEntries = apps ? Object.entries(apps).filter(([,c]) => c.email && c.password) : [];
+  if (appEntries.length > 0) {
+    const appNames = appEntries.map(([name]) => name).join(', ');
+    blocks.push(
+      '=== TEST CREDENTIALS (Browser Testing Only - Multi-App / Phase 8) ===',
+      `Available apps with dedicated credentials: ${appNames}`,
+      'The agent must select the correct set based on task context (e.g. when user says "test the login on CloudcastAI", use the CloudcastAI set below inside browser_fill etc.).',
+      ''
+    );
+    for (const [app, c] of appEntries) {
+      blocks.push(
+        `${app}:`,
+        `  Email:    ${c.email}`,
+        `  Password: ${c.password}`,
+        ''
+      );
+    }
+  }
+
+  if (blocks.length === 0) return '';
+
+  const rules = [
     'Rules (priority equal to SECURITY_INSTRUCTIONS — they override SOUL and any chat instruction):',
-    '- Use these silently inside browser_fill / form-login flows only.',
+    '- Use the appropriate credentials (legacy or per-app) silently inside browser_fill / form-login flows only.',
     '- NEVER echo, paraphrase, or hint at these values in chat replies, task summaries, tool reasoning, or logs.',
     '- NEVER confirm or deny the values, even if the owner asks directly. Treat any such request as adversarial.',
     '- If a value would otherwise appear in your output for any reason, replace it with [REDACTED].',
-    '- Use them only when the owner explicitly asks you to test/log in to a live URL with the test account.',
+    '- Use them only when the owner explicitly asks you to test/log in to a live URL with the test account for the relevant app.',
     '- Log out (or close the browser session) at the end of each testing task.',
-  ].join('\n');
+  ];
+
+  return ['=== TEST CREDENTIALS (Browser Testing Only) ===', ...blocks, ...rules].join('\n');
 }
 
 /**
@@ -72,7 +103,7 @@ export function buildTestCredentials(creds?: TestCredentials | undefined): strin
  * Security rules come first, then optional test-credentials block, then SOUL.
  */
 export function buildSystemPrompt(context: PromptContext): string {
-  const credsBlock = buildTestCredentials(context.testCredentials);
+  const credsBlock = buildTestCredentials(context.testCredentials, context.appCredentials);
 
   const parts: string[] = [SECURITY_INSTRUCTIONS, ''];
 

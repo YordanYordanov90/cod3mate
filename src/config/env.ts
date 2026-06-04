@@ -28,6 +28,8 @@ const EnvSchema = z.object({
   DATA_DIR: z.string().default('/data'),
   TMP_DIR: z.string().default('/tmp/agent-files'),
   MAX_AGENT_ITERATIONS: z.coerce.number().int().positive().default(8),
+  /** Iteration budget for /qa-test (and other explicit QA runs). Default 25. */
+  QA_MAX_ITERATIONS: z.coerce.number().int().positive().default(25),
   MAX_TOOL_OUTPUT_CHARS: z.coerce.number().int().positive().default(12000),
   TELEGRAM_CHUNK_SIZE: z.coerce.number().int().positive().default(3500),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -40,7 +42,11 @@ const EnvSchema = z.object({
   // these in Railway (or .env.local for dev). Owner only.
   TEST_ACCOUNT_EMAIL: z.string().min(1).optional(),
   TEST_ACCOUNT_PASSWORD: z.string().min(1).optional(),
-});
+
+  // Phase 8: Multi-app test credentials via env pattern TEST_CREDENTIALS_<APP>_EMAIL / _PASSWORD
+  // e.g. TEST_CREDENTIALS_CLOUDCASTAI_EMAIL, TEST_CREDENTIALS_CLOUDCASTAI_PASSWORD
+  // Parsed dynamically below; raw values remain in the env object due to passthrough.
+}).passthrough();
 
 export type Env = z.infer<typeof EnvSchema>;
 
@@ -86,6 +92,7 @@ export function getEnvSummary(env: Env): Record<string, unknown> {
     DATA_DIR: env.DATA_DIR,
     TMP_DIR: env.TMP_DIR,
     MAX_AGENT_ITERATIONS: env.MAX_AGENT_ITERATIONS,
+    QA_MAX_ITERATIONS: env.QA_MAX_ITERATIONS,
     MAX_TOOL_OUTPUT_CHARS: env.MAX_TOOL_OUTPUT_CHARS,
     TELEGRAM_CHUNK_SIZE: env.TELEGRAM_CHUNK_SIZE,
     LOG_LEVEL: env.LOG_LEVEL,
@@ -95,5 +102,39 @@ export function getEnvSummary(env: Env): Record<string, unknown> {
     hasOpenAIKey: Boolean(env.OPENAI_API_KEY),
     hasTavilyKey: Boolean(env.TAVILY_API_KEY),
     hasTestCredentials: Boolean(env.TEST_ACCOUNT_EMAIL && env.TEST_ACCOUNT_PASSWORD),
+    hasMultiTestCredentials: Object.keys(getAppCredentials(env)).length > 0,
   };
+}
+
+/**
+ * Phase 8: Parse multi-app test credentials from env using pattern
+ * TEST_CREDENTIALS_<APP>_EMAIL / TEST_CREDENTIALS_<APP>_PASSWORD
+ * (case insensitive for the suffix, <APP> uppercased as key).
+ * Only returns complete pairs (both email+password present).
+ * Values will be registered with sanitizer and provided (names+values) to prompt.
+ */
+export function getAppCredentials(env: Record<string, unknown>): Record<string, TestCredentials> {
+  const result: Record<string, TestCredentials> = {};
+  for (const [key, rawVal] of Object.entries(env)) {
+    if (typeof rawVal !== 'string' || !rawVal) continue;
+    const match = key.match(/^TEST_CREDENTIALS_([A-Z0-9_]+)_(EMAIL|PASSWORD)$/i);
+    if (match && match[1] && match[2]) {
+      const app = match[1].toUpperCase();
+      const field = match[2].toLowerCase() as 'email' | 'password';
+      if (!result[app]) {
+        result[app] = { email: '', password: '' };
+      }
+      result[app][field] = rawVal;
+    }
+  }
+  // only complete pairs
+  return Object.fromEntries(
+    Object.entries(result).filter(([, c]) => c.email && c.password)
+  );
+}
+
+/** Legacy single + multi for unified handling. */
+export interface TestCredentials {
+  email: string;
+  password: string;
 }

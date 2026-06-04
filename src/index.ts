@@ -10,14 +10,19 @@ import {
   setSelectedModel,
 } from './storage/sessions.js';
 import { createOpenAIClient, runAgent } from './agent/mod.js';
-import type { TestCredentials } from './agent/prompt.js';
+import type { TestCredentials } from './config/env.js';
+import { getAppCredentials } from './config/env.js';
 import { toolRegistry } from './tools/registry.js';
 import { registerSecret } from './security/sanitize.js';
 import { buildTaskSummary } from './summary/mod.js';
 import { createFileReadTool, createFileWriteTool } from './tools/files/mod.js';
 import { createTerminalExecTool } from './tools/terminal/mod.js';
-import { createBrowserTools, closeBrowser } from './tools/browser/mod.js';
+import { createBrowserTools, closeBrowser, resetBrowserState } from './tools/browser/mod.js';
 import { createWebSearchTool } from './tools/search/mod.js';
+import { createQaAssertionTools } from './tools/qa/assertions.js';
+import { createQaMonitoringTools } from './tools/qa/monitoring.js';
+import { createQaSaveScenarioTool } from './tools/qa/scenario-runner.js';
+import { createQaAccessibilityTools } from './tools/qa/accessibility.js';
 
 /**
  * Application entrypoint.
@@ -117,25 +122,84 @@ async function main() {
   toolRegistry.register(browserTools.inspectForm);
   toolRegistry.register(browserTools.reset);
 
-  console.log(`[startup] Registered ${toolRegistry.listNames().length} core tools: ${toolRegistry.listNames().join(', ')}`);
+  // Phase 4: Browser wait tools (to make QA non-flaky with async UI)
+  toolRegistry.register(browserTools.waitFor);
+  toolRegistry.register(browserTools.waitForNetworkIdle);
+  toolRegistry.register(browserTools.waitForText);
 
-  // === Test credentials (optional) ===
-  // When both env vars are set, the agent receives them via the system prompt
-  // under a strict no-echo policy. Their literal values are also registered
-  // with the central sanitizer so any accidental leak in tool output, chat
-  // replies, or task summaries is redacted.
-  const testCredentials: TestCredentials | undefined =
+  // Phase 9: Viewport & responsive testing
+  toolRegistry.register(browserTools.setViewport);
+
+  // Phase 5: direct reset for /qa-test (clean browser + monitors before long QA runs)
+  const resetBrowser = async () => {
+    await resetBrowserState();
+  };
+
+  // Phase 1: QA assertion tools (pass/fail primitives for reliable testing)
+  const qaAssertions = await createQaAssertionTools({
+    tmpDir: env.TMP_DIR,
+    headless: true,
+  });
+  toolRegistry.register(qaAssertions.assertVisible);
+  toolRegistry.register(qaAssertions.assertNotVisible);
+  toolRegistry.register(qaAssertions.assertTextContains);
+  toolRegistry.register(qaAssertions.assertUrl);
+  toolRegistry.register(qaAssertions.assertElementCount);
+  toolRegistry.register(qaAssertions.assertStatus);
+
+  // Phase 3: QA network/console observation tools (passive capture)
+  const qaMonitoring = await createQaMonitoringTools({
+    tmpDir: env.TMP_DIR,
+    headless: true,
+  });
+  toolRegistry.register(qaMonitoring.checkConsoleErrors);
+  toolRegistry.register(qaMonitoring.checkNetworkFailures);
+  toolRegistry.register(qaMonitoring.interceptApi);
+
+  // === Test credentials (optional, Phase 8 multi-app support) ===
+  // Legacy single: TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD
+  // Multi-app (Phase 8): TEST_CREDENTIALS_<APP>_EMAIL / _PASSWORD (e.g. TEST_CREDENTIALS_CLOUDCASTAI_EMAIL)
+  // All values registered with sanitizer. Model receives per-app values+names in prompt block.
+  // Never accepted from chat; use silently in browser tools / scenarios.
+  const legacyTestCredentials: TestCredentials | undefined =
     env.TEST_ACCOUNT_EMAIL && env.TEST_ACCOUNT_PASSWORD
       ? { email: env.TEST_ACCOUNT_EMAIL, password: env.TEST_ACCOUNT_PASSWORD }
       : undefined;
 
-  if (testCredentials) {
-    registerSecret(testCredentials.email);
-    registerSecret(testCredentials.password);
-    console.log('[startup] Test credentials enabled (values registered with sanitizer; never logged).');
-  } else {
-    console.log('[startup] Test credentials disabled (TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD not set).');
+  const appCredentials = getAppCredentials(env);
+
+  if (legacyTestCredentials) {
+    registerSecret(legacyTestCredentials.email);
+    registerSecret(legacyTestCredentials.password);
   }
+  for (const [, creds] of Object.entries(appCredentials)) {
+    registerSecret(creds.email);
+    registerSecret(creds.password);
+  }
+
+  const hasAnyCreds = Boolean(legacyTestCredentials) || Object.keys(appCredentials).length > 0;
+  if (hasAnyCreds) {
+    const apps = Object.keys(appCredentials);
+    const msg = apps.length > 0
+      ? `Test credentials enabled for apps: ${apps.join(', ')}${legacyTestCredentials ? ' (plus legacy single)' : ''} (values registered with sanitizer; never logged).`
+      : 'Test credentials enabled (legacy single; values registered with sanitizer; never logged).';
+    console.log(`[startup] ${msg}`);
+  } else {
+    console.log('[startup] Test credentials disabled (no TEST_ACCOUNT_* or TEST_CREDENTIALS_* set).');
+  }
+
+  // Phase 7: QA save scenario tool (after creds so we can guard against literal values in saved scenarios)
+  const qaSaveScenario = createQaSaveScenarioTool({ dataDir: env.DATA_DIR, testCredentials: legacyTestCredentials, appCredentials });
+  toolRegistry.register(qaSaveScenario);
+
+  // Phase 10: QA accessibility audit (axe-core)
+  const qaAccessibility = await createQaAccessibilityTools({
+    tmpDir: env.TMP_DIR,
+    headless: true,
+  });
+  toolRegistry.register(qaAccessibility.accessibilityAudit);
+
+  console.log(`[startup] Registered ${toolRegistry.listNames().length} core tools: ${toolRegistry.listNames().join(', ')}`);
 
   // === Milestone 4: OpenAI + Agent wiring ===
   const openai = createOpenAIClient({ apiKey: env.OPENAI_API_KEY });
@@ -154,6 +218,7 @@ async function main() {
   const runAgentForChat = (args: {
     history: Array<{ role: 'user' | 'assistant'; content: string }>;
     selectedModel?: string | null | undefined;
+    maxIterations?: number;
   }) =>
     runAgent(
       {
@@ -163,8 +228,9 @@ async function main() {
         fallbackModel: env.OPENAI_FALLBACK_MODEL,
         selectedModel: args.selectedModel ?? null,
         enableTools: true,
-        maxIterations: env.MAX_AGENT_ITERATIONS,
-        testCredentials,
+        maxIterations: args.maxIterations ?? env.MAX_AGENT_ITERATIONS,
+        testCredentials: legacyTestCredentials,
+        appCredentials,
       },
       { openai }
     );
@@ -173,12 +239,16 @@ async function main() {
   const bot = createBot({
     env,
     dataDir: env.DATA_DIR,
+    tmpDir: env.TMP_DIR,
     soulContent: soul.content,
     primaryModel: env.OPENAI_PRIMARY_MODEL,
     fallbackModel: env.OPENAI_FALLBACK_MODEL,
     ...sessionDeps,
     runAgent: runAgentForChat,
     buildTaskSummary,
+    resetBrowser,
+    ...(legacyTestCredentials ? { testCredentials: legacyTestCredentials } : {}),
+    ...(Object.keys(appCredentials).length > 0 ? { appCredentials } : {}),
   });
 
   // Prepare a stop function we can call from signal handlers

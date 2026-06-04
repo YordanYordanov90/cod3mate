@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Tool } from '../types.js';
+import { isQaReportCollecting, recordQaScreenshot } from '../qa/report.js';
 
 /**
  * Browser automation tools using Playwright.
@@ -26,6 +27,146 @@ let browserInstance: Browser | null = null;
 let currentContext: BrowserContext | null = null;
 let currentPage: Page | null = null;
 
+// === Phase 3: Network & Console Observation (QA tools) ===
+// Passive capture via Playwright page events. Cleared on navigate/reset.
+const MAX_CAPTURED_ENTRIES = 100;
+const MAX_BODY_CHARS = 4096;
+
+interface CapturedConsoleEntry {
+  type: 'error' | 'warn';
+  text: string;
+  timestamp: string;
+}
+
+interface CapturedNetworkFailure {
+  url: string;
+  method: string;
+  status?: number;
+  errorText?: string;
+  timestamp: string;
+}
+
+interface CapturedResponse {
+  url: string;
+  status: number;
+  method?: string;
+  body: string; // truncated
+  timestamp: string;
+}
+
+let capturedConsole: CapturedConsoleEntry[] = [];
+let capturedNetworkFailures: CapturedNetworkFailure[] = [];
+let capturedResponses: CapturedResponse[] = [];
+
+/** HTTP status from the most recent browser_navigate (null if none yet or navigation failed). */
+let lastNavigationStatus: number | null = null;
+
+function clearCapturedObservations(): void {
+  capturedConsole = [];
+  capturedNetworkFailures = [];
+  capturedResponses = [];
+  lastNavigationStatus = null;
+}
+
+/** Last main-document navigation HTTP status (for qa_assert_status). */
+export function getLastNavigationStatus(): number | null {
+  return lastNavigationStatus;
+}
+
+function truncateBody(text: string | null | undefined): string {
+  if (!text) return '';
+  const s = String(text);
+  if (s.length > MAX_BODY_CHARS) {
+    return s.slice(0, MAX_BODY_CHARS) + '… [truncated]';
+  }
+  return s;
+}
+
+function setupObservationListeners(page: Page): void {
+  // Console errors and warnings (from main + frames)
+  page.on('console', (msg) => {
+    const t = msg.type();
+    if (t === 'error' || t === 'warning') {
+      const norm: 'error' | 'warn' = t === 'warning' ? 'warn' : 'error';
+      capturedConsole.push({
+        type: norm,
+        text: msg.text(),
+        timestamp: new Date().toISOString(),
+      });
+      if (capturedConsole.length > MAX_CAPTURED_ENTRIES) capturedConsole.shift();
+    }
+  });
+
+  // Failed requests (network errors, timeouts, aborts)
+  page.on('requestfailed', (req) => {
+    const failure = req.failure();
+    const entry: CapturedNetworkFailure = {
+      url: req.url(),
+      method: req.method(),
+      timestamp: new Date().toISOString(),
+    };
+    if (failure?.errorText) entry.errorText = failure.errorText;
+    capturedNetworkFailures.push(entry);
+    if (capturedNetworkFailures.length > MAX_CAPTURED_ENTRIES) capturedNetworkFailures.shift();
+  });
+
+  // All responses: capture 4xx/5xx as failures + all for intercept (with truncated body)
+  page.on('response', async (resp) => {
+    const status = resp.status();
+    const url = resp.url();
+    const req = resp.request();
+    const method = req.method();
+
+    if (status >= 400) {
+      const entry: CapturedNetworkFailure = {
+        url,
+        method,
+        status,
+        timestamp: new Date().toISOString(),
+      };
+      capturedNetworkFailures.push(entry);
+      if (capturedNetworkFailures.length > MAX_CAPTURED_ENTRIES) capturedNetworkFailures.shift();
+    }
+
+    // Capture body for qa_intercept_api (only text-ish to avoid bloat/binary issues)
+    try {
+      const headers = resp.headers();
+      const ct = (headers['content-type'] || headers['Content-Type'] || '').toLowerCase();
+      let bodyText = '';
+      if (ct.includes('text') || ct.includes('json') || ct.includes('xml') || ct.includes('javascript') || !ct) {
+        const raw = await resp.text().catch(() => '');
+        bodyText = truncateBody(raw);
+      } else {
+        bodyText = `[non-text content-type: ${ct || 'unknown'}]`;
+      }
+      capturedResponses.push({
+        url,
+        status,
+        method,
+        body: bodyText,
+        timestamp: new Date().toISOString(),
+      });
+      if (capturedResponses.length > MAX_CAPTURED_ENTRIES) capturedResponses.shift();
+    } catch {
+      // ignore body capture failures (e.g. cross-origin, aborted)
+    }
+  });
+}
+
+export function getCapturedConsoleErrors(): CapturedConsoleEntry[] {
+  return [...capturedConsole];
+}
+
+export function getCapturedNetworkFailures(): CapturedNetworkFailure[] {
+  return [...capturedNetworkFailures];
+}
+
+export function getCapturedResponses(): CapturedResponse[] {
+  return [...capturedResponses];
+}
+
+export { clearCapturedObservations };
+
 async function getBrowser(headless = true): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
     browserInstance = await chromium.launch({
@@ -36,7 +177,7 @@ async function getBrowser(headless = true): Promise<Browser> {
   return browserInstance;
 }
 
-async function getOrCreatePage(tmpDir: string, headless: boolean): Promise<Page> {
+export async function getOrCreatePage(tmpDir: string, headless: boolean): Promise<Page> {
   const browser = await getBrowser(headless);
 
   if (currentPage && !currentPage.isClosed() && currentContext) {
@@ -56,10 +197,13 @@ async function getOrCreatePage(tmpDir: string, headless: boolean): Promise<Page>
     userAgent: 'Mozilla/5.0 (compatible; cod3mate-agent/1.0)',
   });
   currentPage = await currentContext.newPage();
+  setupObservationListeners(currentPage);
+  clearCapturedObservations();
   return currentPage;
 }
 
 async function resetBrowserPage(): Promise<void> {
+  clearCapturedObservations();
   if (currentPage && !currentPage.isClosed()) {
     await currentPage.close().catch(() => {});
   }
@@ -78,6 +222,12 @@ export interface BrowserTools {
   extractText: Tool<{ selector?: string }>;
   inspectForm: Tool<Record<string, never>>;
   reset: Tool<Record<string, never>>;
+  // Phase 4: Wait tools to avoid flaky timing (used with assertions)
+  waitFor: Tool<{ selector: string; state?: 'visible' | 'hidden' | 'attached' | 'detached'; timeoutMs?: number }>;
+  waitForNetworkIdle: Tool<{ timeoutMs?: number }>;
+  waitForText: Tool<{ text: string; timeoutMs?: number }>;
+  // Phase 9: Viewport & responsive testing
+  setViewport: Tool<{ preset?: 'mobile' | 'tablet' | 'desktop' | 'wide'; width?: number; height?: number }>;
 }
 
 interface FrameInputInfo {
@@ -113,7 +263,7 @@ interface FrameInputInfo {
  * Returns the first locator that becomes visible within `timeoutPerFrame`
  * for any frame. Throws a descriptive error if nothing matches.
  */
-async function resolveLocatorAcrossFrames(
+export async function resolveLocatorAcrossFrames(
   page: Page,
   selector: string,
   timeoutPerFrame: number
@@ -134,6 +284,107 @@ async function resolveLocatorAcrossFrames(
 
   throw new Error(
     `Selector "${selector}" did not become visible. Searched ${tried.length} frames: ${tried.join(' | ')}. Try browser_inspect_form to see the actual fields.`
+  );
+}
+
+/**
+ * Resolve a visible locator by either CSS selector (delegates to resolveLocatorAcrossFrames)
+ * or by visible text (case-insensitive partial match) across main frame + child frames.
+ * Used by QA assertion tools.
+ */
+export async function resolveVisibleLocator(
+  page: Page,
+  opts: { selector?: string; text?: string },
+  timeoutPerFrame: number = 3000
+): Promise<Locator> {
+  if (opts.selector) {
+    return resolveLocatorAcrossFrames(page, opts.selector, timeoutPerFrame);
+  }
+  if (opts.text) {
+    return resolveTextLocatorAcrossFrames(page, opts.text, timeoutPerFrame);
+  }
+  throw new Error('Provide either "selector" or "text".');
+}
+
+async function resolveTextLocatorAcrossFrames(
+  page: Page,
+  text: string,
+  timeoutPerFrame: number
+): Promise<Locator> {
+  const frames: Frame[] = page.frames();
+  const rx = new RegExp(escapeForRegex(text), 'i');
+  const tried: string[] = [];
+
+  for (const frame of frames) {
+    const label = frame === page.mainFrame() ? '[main page]' : frame.url() || '[frame]';
+    try {
+      const loc = frame.getByText(rx).first();
+      await loc.waitFor({ state: 'visible', timeout: timeoutPerFrame });
+      return loc;
+    } catch {
+      tried.push(label);
+    }
+  }
+
+  throw new Error(
+    `Text "${text}" did not become visible. Searched ${tried.length} frames: ${tried.join(' | ')}.`
+  );
+}
+
+/**
+ * Fast (short-timeout) visibility check across frames for "not visible" assertions.
+ * Does NOT wait long; returns true as soon as any match is visible.
+ */
+export async function isVisibleAcrossFrames(
+  page: Page,
+  opts: { selector?: string; text?: string }
+): Promise<boolean> {
+  if (!opts.selector && !opts.text) return false;
+  const frames: Frame[] = page.frames();
+  for (const frame of frames) {
+    try {
+      let loc: Locator;
+      if (opts.selector) {
+        loc = frame.locator(opts.selector).first();
+      } else {
+        const rx = new RegExp(escapeForRegex(opts.text!), 'i');
+        loc = frame.getByText(rx).first();
+      }
+      const visible = await loc.isVisible({ timeout: 150 }).catch(() => false);
+      if (visible) return true;
+    } catch {
+      // ignore cross-origin or eval errors in this frame
+    }
+  }
+  return false;
+}
+
+/**
+ * Wait for a locator (by selector) to reach a given state across frames (main + iframes).
+ * Used by browser_wait_for. Throws on timeout (caller handles).
+ */
+async function waitForAcrossFrames(
+  page: Page,
+  selector: string,
+  state: 'visible' | 'hidden' | 'attached' | 'detached' = 'visible',
+  timeout = 10000
+): Promise<void> {
+  const frames: Frame[] = page.frames();
+  const tried: string[] = [];
+
+  for (const frame of frames) {
+    const label = frame === page.mainFrame() ? '[main page]' : frame.url() || '[frame]';
+    try {
+      const loc = frame.locator(selector).first();
+      await loc.waitFor({ state, timeout });
+      return;
+    } catch {
+      tried.push(label);
+    }
+  }
+
+  throw new Error(
+    `Selector "${selector}" did not become ${state}. Searched ${tried.length} frames: ${tried.join(' | ')}.`
   );
 }
 
@@ -381,15 +632,17 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
     }),
     execute: async ({ url }) => {
       const page = await getOrCreatePage(tmpDir, headless);
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      clearCapturedObservations(); // Phase 3: observations are "since last navigation"
+      const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      lastNavigationStatus = response?.status() ?? null;
       // Best-effort wait for network/JS to settle on SPA pages. Don't fail if it doesn't.
       await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
       const title = await page.title();
       const finalUrl = page.url();
       return {
         ok: true,
-        content: `Navigated to ${finalUrl}\nTitle: ${title}`,
-        metadata: { url: finalUrl, title },
+        content: `Navigated to ${finalUrl}\nTitle: ${title}${lastNavigationStatus != null ? `\nHTTP status: ${lastNavigationStatus}` : ''}`,
+        metadata: { url: finalUrl, title, status: lastNavigationStatus },
       };
     },
   };
@@ -441,7 +694,7 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
   const screenshot: Tool<{ path?: string; fullPage?: boolean }> = {
     name: 'browser_screenshot',
     description:
-      'Take a screenshot of the current page (the same tab as previous browser tool calls). Returns the saved file path (relative to tmp).',
+      'Take a screenshot of the current page (the same tab as previous browser tool calls). Returns the saved file path (relative to tmp). During an active QA run (/qa-test, /qa-run, or explicit QA tasks), the image is also sent to you on Telegram automatically.',
     inputSchema: z.object({
       path: z.string().optional().default('').describe('Optional filename for the screenshot (saved under screenshots/)'),
       fullPage: z.boolean().default(false).describe('Capture full page or just viewport'),
@@ -452,10 +705,14 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
       const fullPath = path.join(screenshotsDir, safeName);
       await page.screenshot({ path: fullPath, fullPage });
       const relativePath = path.relative(tmpDir, fullPath);
+      const qaRun = isQaReportCollecting();
+      if (qaRun) {
+        recordQaScreenshot(relativePath);
+      }
       return {
         ok: true,
-        content: `Screenshot saved to: ${relativePath}`,
-        metadata: { path: relativePath },
+        content: `Screenshot saved to: ${relativePath}${qaRun ? ' (queued for Telegram)' : ''}`,
+        metadata: { path: relativePath, sentToTelegram: qaRun },
       };
     },
   };
@@ -519,6 +776,7 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
       'Close the current browser tab and start a fresh one. Use when switching to an unrelated site, after logout, or when the page state is corrupted. The next browser_navigate will open a clean session.',
     inputSchema: z.object({}),
     execute: async () => {
+      clearCapturedObservations(); // Phase 3
       await resetBrowserPage();
       return {
         ok: true,
@@ -527,7 +785,152 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
     },
   };
 
-  return { navigate, click, fill, screenshot, extractText, inspectForm, reset };
+  // Phase 4: Wait tools (prevent flakiness with spinners/async; return elapsed time)
+  const waitFor: Tool<{ selector: string; state?: 'visible' | 'hidden' | 'attached' | 'detached'; timeoutMs?: number }> = {
+    name: 'browser_wait_for',
+    description:
+      'Wait for a CSS selector to reach a state (appear or disappear etc). state: visible (default=appear), hidden (disappear), attached, detached. timeoutMs default 10000 (10s), max 30000 (30s). Cross-frame. Returns elapsed time so reports know duration.',
+    inputSchema: z.object({
+      selector: z.string().min(1).describe('CSS selector to wait for'),
+      state: z
+        .enum(['visible', 'hidden', 'attached', 'detached'])
+        .optional()
+        .default('visible')
+        .describe('State to wait for (visible=appear, hidden=disappear)'),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(100)
+        .max(30000)
+        .optional()
+        .default(10000)
+        .describe('Max wait time in ms'),
+    }),
+    execute: async ({ selector, state = 'visible', timeoutMs = 10000 }) => {
+      const page = await getOrCreatePage(tmpDir, headless);
+      const t0 = Date.now();
+      try {
+        await waitForAcrossFrames(page, selector, state, timeoutMs);
+        const elapsed = Date.now() - t0;
+        return {
+          ok: true,
+          content: `Successfully waited ${elapsed}ms for selector "${selector}" to be ${state}.`,
+          metadata: { elapsed, success: true, selector, state, timeoutMs },
+        };
+      } catch (err: any) {
+        const elapsed = Date.now() - t0;
+        return {
+          ok: true,
+          content: `Timed out after ${elapsed}ms waiting for selector "${selector}" to be ${state}. ${err?.message || err}`,
+          metadata: { elapsed, success: false, selector, state, timeoutMs, error: err?.message || String(err) },
+        };
+      }
+    },
+  };
+
+  const waitForNetworkIdle: Tool<{ timeoutMs?: number }> = {
+    name: 'browser_wait_for_network_idle',
+    description:
+      'Wait for network to be idle (no pending requests for the idle period, using Playwright networkidle). timeoutMs default 10000 (10s), max 30000. Returns elapsed time.',
+    inputSchema: z.object({
+      timeoutMs: z.number().int().min(100).max(30000).optional().default(10000).describe('Max time to wait for idle'),
+    }),
+    execute: async ({ timeoutMs = 10000 }) => {
+      const page = await getOrCreatePage(tmpDir, headless);
+      const t0 = Date.now();
+      try {
+        await page.waitForLoadState('networkidle', { timeout: timeoutMs });
+        const elapsed = Date.now() - t0;
+        return {
+          ok: true,
+          content: `Network became idle after ${elapsed}ms.`,
+          metadata: { elapsed, success: true, timeoutMs },
+        };
+      } catch (err: any) {
+        const elapsed = Date.now() - t0;
+        return {
+          ok: true,
+          content: `Did not reach network idle after ${elapsed}ms. ${err?.message || err}`,
+          metadata: { elapsed, success: false, timeoutMs, error: err?.message || String(err) },
+        };
+      }
+    },
+  };
+
+  const waitForText: Tool<{ text: string; timeoutMs?: number }> = {
+    name: 'browser_wait_for_text',
+    description:
+      'Wait until specific text appears anywhere on the page (searches main + all iframes, case-insensitive). timeoutMs default 10000 max 30000. Returns elapsed time.',
+    inputSchema: z.object({
+      text: z.string().min(1).describe('The text to wait for (partial, case-insensitive)'),
+      timeoutMs: z.number().int().min(100).max(30000).optional().default(10000).describe('Max wait time in ms'),
+    }),
+    execute: async ({ text, timeoutMs = 10000 }) => {
+      const page = await getOrCreatePage(tmpDir, headless);
+      const t0 = Date.now();
+      try {
+        await resolveTextLocatorAcrossFrames(page, text, timeoutMs);
+        const elapsed = Date.now() - t0;
+        return {
+          ok: true,
+          content: `Text "${text}" appeared after ${elapsed}ms.`,
+          metadata: { elapsed, success: true, text, timeoutMs },
+        };
+      } catch (err: any) {
+        const elapsed = Date.now() - t0;
+        return {
+          ok: true,
+          content: `Text "${text}" did not appear after ${elapsed}ms. ${err?.message || err}`,
+          metadata: { elapsed, success: false, text, timeoutMs, error: err?.message || String(err) },
+        };
+      }
+    },
+  };
+
+  // Phase 9: Viewport tool
+  const VIEWPORT_PRESETS = {
+    mobile: { width: 375, height: 812 },
+    tablet: { width: 768, height: 1024 },
+    desktop: { width: 1280, height: 800 },
+    wide: { width: 1920, height: 1080 },
+  } as const;
+
+  const setViewport: Tool<{ preset?: keyof typeof VIEWPORT_PRESETS; width?: number; height?: number }> = {
+    name: 'browser_set_viewport',
+    description:
+      'Set the browser viewport size for responsive testing. Use a "preset" (mobile, tablet, desktop, wide) or provide custom "width" and "height". Affects subsequent screenshots, extracts, and layout. The page persists.',
+    inputSchema: z
+      .object({
+        preset: z.enum(['mobile', 'tablet', 'desktop', 'wide']).optional().describe('Predefined viewport size'),
+        width: z.number().int().positive().optional().describe('Custom width in pixels (requires height)'),
+        height: z.number().int().positive().optional().describe('Custom height in pixels (requires width)'),
+      })
+      .refine((v) => !!v.preset || (v.width != null && v.height != null), {
+        message: 'Provide either a preset or both width and height for custom size.',
+      }),
+    execute: async (input) => {
+      const page = await getOrCreatePage(tmpDir, headless);
+      let size: { width: number; height: number };
+      let label = '';
+      if (input.preset) {
+        size = VIEWPORT_PRESETS[input.preset];
+        label = ` (${input.preset})`;
+      } else if (input.width != null && input.height != null) {
+        size = { width: input.width, height: input.height };
+        label = ' (custom)';
+      } else {
+        return { ok: false, error: 'Provide either a preset or both width and height.' };
+      }
+      await page.setViewportSize(size);
+      return {
+        ok: true,
+        content: `Viewport set to ${size.width}x${size.height}${label}`,
+        metadata: { ...size, preset: input.preset || null },
+      };
+    },
+  };
+
+  return { navigate, click, fill, screenshot, extractText, inspectForm, reset, waitFor, waitForNetworkIdle, waitForText, setViewport };
 }
 
 export async function closeBrowser(): Promise<void> {
@@ -536,4 +939,12 @@ export async function closeBrowser(): Promise<void> {
     await browserInstance.close().catch(() => {});
     browserInstance = null;
   }
+}
+
+/**
+ * Reset current page/context (but keep browser instance).
+ * Exported primarily for test isolation of browser-dependent tools (QA assertions, etc).
+ */
+export async function resetBrowserState(): Promise<void> {
+  await resetBrowserPage();
 }

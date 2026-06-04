@@ -19,7 +19,7 @@ export interface SanitizeOptions {
 /**
  * Module-level registry of literal secret values that must always be redacted
  * from sanitized output. Populated at startup with values like
- * TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD so every downstream sanitize call
+ * TEST_ACCOUNT_* (legacy) and TEST_CREDENTIALS_<APP>_* (Phase 8) so every downstream sanitize call
  * — tool results, chat replies, task summaries — automatically scrubs them.
  *
  * Centralizing here satisfies architecture invariant #2 (zero secret leakage)

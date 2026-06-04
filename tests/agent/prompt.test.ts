@@ -57,4 +57,21 @@ describe('agent prompt construction', () => {
     expect(prompt).toContain('[REDACTED]');
     expect(prompt).toContain('override SOUL');
   });
+
+  it('supports Phase 8 multi-app credentials block listing app names (not exposing in selection but values present)', () => {
+    const soul = 'soul';
+    const prompt = buildSystemPrompt({
+      soulContent: soul,
+      appCredentials: {
+        CLOUDCASTAI: { email: 'cc@ex.com', password: 'ccpw' },
+        PINEFORGE: { email: 'pf@ex.com', password: 'pfpw' },
+      },
+    });
+    expect(prompt).toContain('TEST CREDENTIALS');
+    expect(prompt).toContain('Available apps with dedicated credentials: CLOUDCASTAI, PINEFORGE');
+    expect(prompt).toContain('CLOUDCASTAI:');
+    expect(prompt).toContain('cc@ex.com');
+    expect(prompt).toContain('PINEFORGE:');
+    expect(prompt).toContain('Use the appropriate credentials (legacy or per-app) silently');
+  });
 });

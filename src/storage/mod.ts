@@ -8,11 +8,15 @@ import path from 'node:path';
 
 export const SESSIONS_DIR = 'sessions';
 export const SOUL_FILE = 'SOUL.md';
+export const QA_REPORTS_DIR = 'qa-reports';
+export const QA_SCENARIOS_DIR = 'qa-scenarios';
 
 export interface StoragePaths {
   dataDir: string;
   sessionsDir: string;
   soulPath: string;
+  qaReportsDir: string;
+  qaScenariosDir: string;
 }
 
 /**
@@ -24,6 +28,8 @@ export function getStoragePaths(dataDir: string): StoragePaths {
     dataDir: resolvedData,
     sessionsDir: path.join(resolvedData, SESSIONS_DIR),
     soulPath: path.join(resolvedData, SOUL_FILE),
+    qaReportsDir: path.join(resolvedData, QA_REPORTS_DIR),
+    qaScenariosDir: path.join(resolvedData, QA_SCENARIOS_DIR),
   };
 }
 
@@ -36,6 +42,8 @@ export async function ensureDataDirectories(dataDir: string): Promise<void> {
 
   await mkdir(paths.dataDir, { recursive: true });
   await mkdir(paths.sessionsDir, { recursive: true });
+  await mkdir(paths.qaReportsDir, { recursive: true });
+  await mkdir(paths.qaScenariosDir, { recursive: true });
 }
 
 /**

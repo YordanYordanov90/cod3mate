@@ -33,6 +33,7 @@ describe('env validation', () => {
     expect(env.OPENAI_PRIMARY_MODEL).toBe('gpt-test-primary');
     expect(env.TAVILY_SEARCH_ENDPOINT).toBe('https://api.tavily.com/search'); // default
     expect(env.MAX_AGENT_ITERATIONS).toBe(8);
+    expect(env.QA_MAX_ITERATIONS).toBe(25);
     expect(env.ENABLE_FILE_LOGS).toBe(false);
   });
 
@@ -75,5 +76,28 @@ describe('env validation', () => {
     expect(summary).not.toHaveProperty('OPENAI_API_KEY');
     expect(summary).not.toHaveProperty('TAVILY_API_KEY');
     expect(summary.TELEGRAM_ALLOWED_USER_ID).toBe(111222333);
+  });
+
+  it('getAppCredentials and summary handle Phase 8 multi-app (complete pairs only)', async () => {
+    // dynamic import to reset
+    vi.resetModules();
+    process.env.TELEGRAM_BOT_TOKEN = 't';
+    process.env.TELEGRAM_ALLOWED_USER_ID = '1';
+    process.env.OPENAI_API_KEY = 'k';
+    process.env.OPENAI_PRIMARY_MODEL = 'm1';
+    process.env.OPENAI_FALLBACK_MODEL = 'm2';
+    process.env.TAVILY_API_KEY = 'tv';
+    process.env.TEST_CREDENTIALS_CLOUDCASTAI_EMAIL = 'cc@ex.com';
+    process.env.TEST_CREDENTIALS_CLOUDCASTAI_PASSWORD = 'ccpw';
+    process.env.TEST_CREDENTIALS_PINEFORGE_EMAIL = 'pf@ex.com'; // incomplete, no pass
+
+    const { loadEnv, getEnvSummary, getAppCredentials } = await import('../../src/config/env.js');
+    const env = loadEnv();
+    const apps = getAppCredentials(env);
+    expect(Object.keys(apps)).toEqual(['CLOUDCASTAI']);
+    expect(apps.CLOUDCASTAI.email).toBe('cc@ex.com');
+
+    const summary = getEnvSummary(env);
+    expect(summary.hasMultiTestCredentials).toBe(true);
   });
 });

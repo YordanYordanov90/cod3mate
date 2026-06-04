@@ -14,6 +14,7 @@ const fakeEnv: Env = {
   DATA_DIR: '/data',
   TMP_DIR: '/tmp/agent-files',
   MAX_AGENT_ITERATIONS: 8,
+  QA_MAX_ITERATIONS: 25,
   MAX_TOOL_OUTPUT_CHARS: 12000,
   TELEGRAM_CHUNK_SIZE: 3500,
   LOG_LEVEL: 'info',
@@ -31,6 +32,7 @@ describe('telegram bot creation (M3 sessions)', () => {
     const bot = createBot({
       env: fakeEnv,
       dataDir: '/tmp/test-data',
+      tmpDir: '/tmp/agent-files',
       ...mockSession,
     });
     expect(bot).toBeDefined();
@@ -41,6 +43,7 @@ describe('telegram bot creation (M3 sessions)', () => {
     const bot = createBot({
       env: fakeEnv,
       dataDir: '/tmp/test-data',
+      tmpDir: '/tmp/agent-files',
       ...mockSession,
     });
     expect(bot).toBeDefined();

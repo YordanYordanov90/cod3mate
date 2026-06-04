@@ -12,7 +12,7 @@ import type { ToolResult } from '../tools/types.js';
  * - System prompt = security rules + optional test creds + SOUL.
  * - Each round: call model. If model returns tool_calls, execute them,
  *   append results, and call again. If no tool_calls, return content.
- * - Bounded by `maxIterations` (default 8, sourced from MAX_AGENT_ITERATIONS).
+ * - Bounded by `maxIterations` (default 8 from env; 25 for /qa-test QA runs).
  * - If the very first model call throws a retryable error, the runner
  *   transparently switches to the fallback model and continues the loop.
  */
@@ -27,14 +27,18 @@ export interface AgentInput {
   /** Whether to enable tool calling in this run */
   enableTools?: boolean;
   /**
-   * Optional test credentials for browser-based login flows.
+   * Optional legacy test credentials for browser-based login flows.
    * Sourced from env (TEST_ACCOUNT_EMAIL / TEST_ACCOUNT_PASSWORD).
    * Never pass values that originated from chat input.
    */
   testCredentials?: TestCredentials | undefined;
   /**
+   * Phase 8 multi-app credentials (app name -> {email, password}).
+   */
+  appCredentials?: Record<string, TestCredentials> | undefined;
+  /**
    * Maximum tool-call rounds. Each round is one (model -> tools) pair.
-   * Defaults to 8. Pass MAX_AGENT_ITERATIONS from env at the call site.
+   * Defaults to 8 (from env MAX_AGENT_ITERATIONS). /qa-test passes 25 for long flows.
    */
   maxIterations?: number;
 }
@@ -71,6 +75,7 @@ export async function runAgent(
   const systemPrompt = buildSystemPrompt({
     soulContent: input.soulContent,
     testCredentials: input.testCredentials,
+    appCredentials: input.appCredentials,
   });
 
   const messages: ChatCompletionMessageParam[] = [

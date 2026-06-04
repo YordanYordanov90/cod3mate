@@ -2,7 +2,7 @@
 
 A private, single-owner Telegram AI agent built on Node.js, TypeScript, GrammY, and the OpenAI SDK, deployed as an always-on Railway service. The owner sends a Telegram message, a whitelist middleware verifies the sender, an OpenAI-driven agent loop reasons and calls tools (browser, terminal, file, search), and the sanitized result is chunked back to Telegram. Secrets never leave environment variables.
 
-> Status: Milestones 1–7 complete (foundation, Telegram shell, SOUL + sessions, agent loop, tool registry, 9 core tools, Telegram task summary). Milestone 8 (Railway deployment) is in progress. See `context/progress-tracker.md` for the live status.
+> Status: Milestones 1–8 complete. QA Agent Roadmap (Phases 1–10) complete — assertions, reports, scenarios, `/qa-test`, multi-app test credentials, accessibility audits. See `context/progress-tracker.md` and `context/improvements/qa-agent-roadmap.md`.
 
 ---
 
@@ -24,11 +24,11 @@ A private, single-owner Telegram AI agent built on Node.js, TypeScript, GrammY, 
 - **Owner-only Telegram bot** — every update is rejected before the agent loop or tools run unless the sender matches `TELEGRAM_ALLOWED_USER_ID`.
 - **OpenAI agent loop** — primary + fallback model, per-chat model switching via `/model`, conversation history, tool-call orchestration.
 - **`SOUL.md` personality** — loaded from `/data/SOUL.md` at startup and injected into the system prompt below the hard security rules. Safe default template is created if missing.
-- **9 sandboxed tools** — `file_read`, `file_write`, `terminal_exec`, `web_search`, `browser_navigate`, `browser_click`, `browser_fill`, `browser_screenshot`, `browser_extract_text`.
-- **Hard sandboxing** — file tools confined to `TMP_DIR` with traversal guards, terminal tool gated by a strict allowlist (`pwd, ls, echo, date, node, npm, which, cat, head, tail, wc, find`) with timeout, output cap, sanitized env, and a `path.sep`-anchored cwd containment check.
-- **Centralized secret sanitization** (`src/security/sanitize.ts`) — every tool result, log line, error, model observation, and Telegram message is scrubbed before it leaves the process.
-- **Telegram task summaries** — after each completed task, the agent sends a short, mobile-friendly summary (title, one-paragraph result, tools used, caveats, next steps). No persisted files, no external services in v1.
-- **Persistent state under `/data`** — `SOUL.md`, per-chat session history, and selected models survive restarts on the Railway volume.
+- **~26 sandboxed tools** — files, terminal, Tavily search, Playwright browser (persistent tab, waits, viewport), and QA tools (`qa_assert_*`, network/console observation, accessibility audit, scenario save).
+- **Hard sandboxing** — file tools confined to `TMP_DIR`; terminal allowlist with extra guards on `git` (read-only, no `config`), `curl` (GET/HEAD/OPTIONS), and `npx` (vitest/playwright/tsc/eslint/tsx/prettier only).
+- **Centralized secret sanitization** (`src/security/sanitize.ts`) — scrubbed before model, Telegram, or logs. Test login credentials come from env only (never chat).
+- **QA reports** — structured pass/fail reports when using `qa_assert_*`, persisted under `/data/qa-reports/`, viewable via `/qa-history` and `/qa-report <id>`.
+- **Persistent state under `/data`** — `SOUL.md`, sessions, QA reports, and QA scenarios survive restarts on the Railway volume.
 
 ## Telegram Commands
 
@@ -39,6 +39,11 @@ A private, single-owner Telegram AI agent built on Node.js, TypeScript, GrammY, 
 | `/status` | Show service status, active model, tool availability. |
 | `/reset` | Clear the current chat's conversation history. |
 | `/model` | Show current model or switch (primary / fallback / custom / clear). |
+| `/qa-test` | Run exploratory QA (higher iteration limit, fresh browser). |
+| `/qa-run <name>` | Execute a saved scenario (deterministic steps). |
+| `/qa-scenarios` | List saved scenarios. |
+| `/qa-history` | List recent QA reports. |
+| `/qa-report <id>` | Show full QA report by id. |
 
 Non-whitelisted users receive no useful response and no access to OpenAI, history, or tools.
 
@@ -55,7 +60,8 @@ src/
     files/     file_read, file_write (TMP_DIR sandbox)
     terminal/  terminal_exec (allowlist + cwd sandbox)
     search/    web_search (Tavily)
-    browser/   navigate, click, fill, screenshot, extract_text
+    browser/   navigate, click, fill, screenshot, extract, waits, viewport
+    qa/        assertions, monitoring, accessibility, scenario-runner
   summary/    Telegram task summary builder
   security/   sanitization, redaction, safe logging
   lib/        small shared utilities
@@ -123,7 +129,8 @@ Local runs use Telegram long polling, so no public URL or webhook is needed.
 | --- | --- |
 | `DATA_DIR` | `/data` |
 | `TMP_DIR` | `/tmp/agent-files` |
-| `MAX_AGENT_ITERATIONS` | `8` |
+| `MAX_AGENT_ITERATIONS` | `8` (chat default) |
+| `QA_MAX_ITERATIONS` | `25` (`/qa-test`) |
 | `MAX_TOOL_OUTPUT_CHARS` | `12000` |
 | `TELEGRAM_CHUNK_SIZE` | `3500` |
 | `LOG_LEVEL` | `info` |
@@ -142,7 +149,7 @@ Local runs use Telegram long polling, so no public URL or webhook is needed.
 6. The tool registry validates inputs with Zod, runs each tool with a timeout and output cap, and sanitizes the result before the model sees it.
 7. The agent loops until a final answer or the iteration limit is reached.
 8. The reply is chunked to fit `TELEGRAM_CHUNK_SIZE` and sent to the owner.
-9. A Telegram task summary is sent after the task completes.
+9. If QA assertions ran, a structured QA report is sent and saved; session may include a compact QA snapshot line.
 10. Session history is persisted under `/data/sessions/<chatId>.json`.
 
 ## Security Invariants
@@ -150,14 +157,14 @@ Local runs use Telegram long polling, so no public URL or webhook is needed.
 These are enforced and must not be violated by any change. The full list lives in `AGENTS.md`.
 
 1. Owner-only access — non-whitelisted Telegram updates never reach the agent loop or tools.
-2. Zero secret leakage — env values, OpenAI keys, Tavily keys, and bot tokens are redacted before they touch the model, logs, tool results, summaries, or Telegram.
+2. Zero secret leakage in outputs — keys and tokens redacted everywhere. Test-account env creds may appear in the system prompt only (for browser QA), never in chat or replies.
 3. File sandbox — file tools stay inside `TMP_DIR` via `resolveSafePath` with `root + path.sep` prefix checks.
 4. Terminal sandbox — allowlist, timeout, output cap, cwd containment, sanitized child env.
 5. `SOUL.md` is instruction-only — it cannot override security, tool, or access rules. Security rules sit above SOUL in the system prompt.
 6. Every tool result passes through `sanitizeToolResult` before reaching the model or Telegram.
 7. Task summaries are Telegram-only in v1. No files, no GitHub, no external services.
 8. Model IDs come from env. Never hardcoded.
-9. Playwright contexts close after each call. The browser closes on graceful shutdown.
+9. Browser uses a persistent tab across tool calls; `browser_reset` clears state; Chromium closes on shutdown.
 10. Must remain deployable from a clean clone with env vars + a mounted `/data`.
 
 ## Testing
@@ -172,7 +179,7 @@ npm run build
 
 All three must pass before commit.
 
-## Deployment (Railway, work in progress)
+## Deployment (Railway)
 
 The `Dockerfile` uses a two-stage build:
 

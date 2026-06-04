@@ -54,7 +54,7 @@ The agent loop owns all model reasoning and tool orchestration. It is a true **m
 
 Required loop constraints:
 
-- Maximum tool iterations per user message is sourced from `MAX_AGENT_ITERATIONS` (default `8`). One iteration = one model call.
+- Maximum tool iterations per user message is sourced from `MAX_AGENT_ITERATIONS` (default `8`) for normal chat, or `QA_MAX_ITERATIONS` (default `25`) for `/qa-test`. One iteration = one model call.
 - Each tool has an independent timeout.
 - Tool outputs are truncated to `MAX_TOOL_OUTPUT_CHARS`.
 - Every external input is validated before it enters agent state.
@@ -86,8 +86,10 @@ persist session
 - **`/data/sessions/`**: serialized per-chat conversation history and selected model state.
 - **`/data/logs/`**: optional sanitized operational logs if file logging is enabled.
 - **`/tmp/agent-files/`**: temporary file-tool workspace. Files here are disposable and may be cleared.
+- **`/data/qa-reports/`**: persisted structured QA reports (JSON) when `qa_assert_*` tools run.
+- **`/data/qa-scenarios/`**: reusable test scenario JSON files for `/qa-run`.
 
-Task summaries are not persisted in this version. They are produced as Telegram messages only.
+Task summaries for normal chat are not persisted as files; the bot sends a merged Telegram message. QA reports are an exception and persist under `/data/qa-reports/`.
 
 ## Auth and Access Model
 
@@ -113,11 +115,14 @@ Optional environment variables:
 - `DATA_DIR`, default `/data`
 - `TMP_DIR`, default `/tmp/agent-files`
 - `MAX_AGENT_ITERATIONS`, default `8`
+- `QA_MAX_ITERATIONS`, default `25` (used by `/qa-test`)
 - `MAX_TOOL_OUTPUT_CHARS`, default `12000`
 - `TELEGRAM_CHUNK_SIZE`, default `3500`
 - `LOG_LEVEL`, default `info`
 - `ENABLE_FILE_LOGS`, default `false`
-- `TEST_ACCOUNT_EMAIL` and `TEST_ACCOUNT_PASSWORD` — optional pair. When both are set, the agent receives them through an elevated-priority block in the system prompt for browser-based login flows only. Both values are registered with the central sanitizer at startup, must never be echoed in any output, and are not accepted from chat input. When unset, the bot refuses any login flow that would require credentials from the user.
+- `TEST_ACCOUNT_EMAIL` and `TEST_ACCOUNT_PASSWORD` — optional legacy pair.
+- `TEST_CREDENTIALS_<APP>_EMAIL` / `TEST_CREDENTIALS_<APP>_PASSWORD` — optional per-app pairs (e.g. `CLOUDCASTAI`).
+- When set, complete credential sets are injected into the **system prompt only** (elevated block above SOUL) for `browser_fill` login flows. Values are sanitizer-registered and must never appear in Telegram, logs, or tool output. **Chat-supplied credentials are refused.** This is an intentional tradeoff for automated QA; API keys and production secrets must never use this mechanism.
 
 Model defaults:
 
@@ -149,17 +154,17 @@ Each tool definition must include:
 - Execution function.
 - Sanitization policy.
 
-Initial tools:
+Core tools (M6): `file_read`, `file_write`, `terminal_exec`, `web_search`, and browser actions (`browser_navigate`, `browser_click`, `browser_fill`, `browser_screenshot`, `browser_extract_text`, …).
 
-- `browser_navigate`
-- `browser_click`
-- `browser_fill`
-- `browser_screenshot`
-- `browser_extract_text`
-- `terminal_exec`
-- `file_read`
-- `file_write`
-- `web_search`
+QA extensions (see `src/tools/qa/` and `AGENTS.md`): assertion tools (`qa_assert_*`), network/console observation (`qa_check_*`, `qa_intercept_api`), `qa_accessibility_audit`, `qa_save_scenario`, plus browser wait/viewport helpers. Full list is registered in `src/index.ts`.
+
+### Browser state model
+
+- One lazy-launched Chromium process per service instance.
+- One persistent `BrowserContext` + `Page` reused across tool calls so multi-step flows share DOM state.
+- `browser_reset` closes context/page and clears passive network/console capture buffers.
+- `closeBrowser()` on graceful shutdown.
+- Cross-frame resolution for click/fill/assert on embedded auth widgets (Clerk, Auth0, etc.).
 
 ## Task Response Architecture
 
@@ -197,12 +202,12 @@ Polling mode is acceptable for the first deployment because it avoids a public w
 ## Invariants
 
 1. No Telegram update from a non-whitelisted user may reach the agent loop or tool registry.
-2. No secret value from environment variables may be sent to OpenAI, Telegram, logs, task summaries, or session history.
+2. No secret value from environment variables may appear in Telegram, logs, task summaries, tool results, or session history. **Exception:** throwaway test-account email/password env vars may be included in the OpenAI system prompt only (never from chat); they remain sanitizer-redacted everywhere else.
 3. File tool operations must stay inside the configured temporary directory.
 4. Terminal execution must be bounded by timeout, output length, and command policy.
 5. `SOUL.md` is instruction context only; it must not override security, tool, or access-control rules.
 6. Tool outputs must be sanitized before being stored or sent to the model.
 7. Task responses are Telegram-only in this version and must not be written to files or external services. Each completed task delivers exactly one merged message (answer + optional metadata footer).
 8. Model IDs must be configurable through environment variables rather than hardcoded into business logic.
-9. Browser resources must be reused or closed cleanly to avoid memory leaks in the Railway container.
+9. Browser resources use a persistent tab within one Chromium instance; reset or shutdown must not leak memory on Railway.
 10. Implementation must remain deployable from a clean clone with environment variables and a mounted `/data` volume.
