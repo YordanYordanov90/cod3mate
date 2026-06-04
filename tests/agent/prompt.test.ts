@@ -27,7 +27,8 @@ describe('agent prompt construction', () => {
 
   it('omits the test-credentials block when none are provided', () => {
     const prompt = buildSystemPrompt({ soulContent: 'soul' });
-    expect(prompt).not.toContain('TEST CREDENTIALS');
+    expect(prompt).not.toContain('=== TEST CREDENTIALS (Browser Testing Only) ===');
+    expect(prompt).not.toContain('Email:');
   });
 
   it('omits the test-credentials block when either field is missing', () => {
@@ -56,6 +57,8 @@ describe('agent prompt construction', () => {
     expect(prompt).toContain('NEVER echo');
     expect(prompt).toContain('[REDACTED]');
     expect(prompt).toContain('override SOUL');
+    expect(prompt).toContain('EXACT full value');
+    expect(prompt).toContain('does NOT apply to these test credentials inside browser_fill');
   });
 
   it('supports Phase 8 multi-app credentials block listing app names (not exposing in selection but values present)', () => {

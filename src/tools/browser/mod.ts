@@ -167,6 +167,15 @@ export function getCapturedResponses(): CapturedResponse[] {
 
 export { clearCapturedObservations };
 
+/** Resolve a safe screenshot filename with a supported image extension. */
+export function resolveScreenshotFilename(filename?: string): string {
+  let safeName = (filename?.trim() || `screenshot-${Date.now()}.png`).replace(/[^a-zA-Z0-9_.-]/g, '_');
+  if (!/\.(png|jpe?g)$/i.test(safeName)) {
+    safeName += '.png';
+  }
+  return safeName;
+}
+
 async function getBrowser(headless = true): Promise<Browser> {
   if (!browserInstance || !browserInstance.isConnected()) {
     browserInstance = await chromium.launch({
@@ -696,12 +705,12 @@ export async function createBrowserTools(config: BrowserToolConfig): Promise<Bro
     description:
       'Take a screenshot of the current page (the same tab as previous browser tool calls). Returns the saved file path (relative to tmp). During an active QA run (/qa-test, /qa-run, or explicit QA tasks), the image is also sent to you on Telegram automatically.',
     inputSchema: z.object({
-      path: z.string().optional().default('').describe('Optional filename for the screenshot (saved under screenshots/)'),
+      path: z.string().optional().describe('Optional filename for the screenshot (saved under screenshots/)'),
       fullPage: z.boolean().default(false).describe('Capture full page or just viewport'),
     }),
-    execute: async ({ path: filename = `screenshot-${Date.now()}.png`, fullPage = false }) => {
+    execute: async ({ path: filename, fullPage = false }) => {
       const page = await getOrCreatePage(tmpDir, headless);
-      const safeName = filename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+      const safeName = resolveScreenshotFilename(filename);
       const fullPath = path.join(screenshotsDir, safeName);
       await page.screenshot({ path: fullPath, fullPage });
       const relativePath = path.relative(tmpDir, fullPath);
