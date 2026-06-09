@@ -2,9 +2,22 @@ import path from 'node:path';
 import { readdir, stat, mkdir } from 'node:fs/promises';
 import { readJsonFile, writeJsonFile, getStoragePaths } from './mod.js';
 import type { QaReport } from '../tools/qa/report.js';
+import {
+  copyTmpScreenshotToDurable,
+  ensureQaArtifactsDirs,
+  type DurableScreenshotMeta,
+} from './qa-artifacts.js';
+
+export type { DurableScreenshotMeta };
 
 export interface StoredQaReport extends QaReport {
   id: string;
+  screenshots?: DurableScreenshotMeta[];
+}
+
+export interface SaveQaReportOptions {
+  tmpDir?: string;
+  tmpScreenshotPaths?: string[];
 }
 
 /**
@@ -18,12 +31,7 @@ export async function ensureQaReportsDir(dataDir: string): Promise<string> {
   return paths.qaReportsDir;
 }
 
-/**
- * Save a completed QA report as JSON under /data/qa-reports/.
- * Filename: <iso-ts-slug>.json . Returns the generated id.
- */
-export async function saveQaReport(dataDir: string, report: QaReport): Promise<string> {
-  const dir = await ensureQaReportsDir(dataDir);
+function buildReportId(report: QaReport): string {
   const baseTs = report.startedAt || new Date().toISOString();
   const ts = baseTs.replace(/[:.]/g, '-');
   const slug = (report.title || 'qa-run')
@@ -31,9 +39,56 @@ export async function saveQaReport(dataDir: string, report: QaReport): Promise<s
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 50) || 'run';
-  const id = `${ts}-${slug}`;
+  return `${ts}-${slug}`;
+}
+
+async function persistDurableScreenshots(
+  dataDir: string,
+  reportId: string,
+  tmpDir: string,
+  tmpScreenshotPaths: string[]
+): Promise<DurableScreenshotMeta[]> {
+  await ensureQaArtifactsDirs(dataDir);
+  const screenshots: DurableScreenshotMeta[] = [];
+  const seen = new Set<string>();
+
+  for (const rel of tmpScreenshotPaths) {
+    const meta = await copyTmpScreenshotToDurable(dataDir, tmpDir, reportId, rel);
+    if (!meta || seen.has(meta.path)) continue;
+    seen.add(meta.path);
+    screenshots.push(meta);
+  }
+
+  return screenshots;
+}
+
+/**
+ * Save a completed QA report as JSON under /data/qa-reports/.
+ * Filename: <iso-ts-slug>.json . Returns the generated id.
+ *
+ * When `options.tmpScreenshotPaths` is provided with `options.tmpDir`, copies
+ * transient screenshots into `/data/qa-artifacts/screenshots/<reportId>/` and
+ * stores metadata on the saved report JSON.
+ */
+export async function saveQaReport(
+  dataDir: string,
+  report: QaReport,
+  options: SaveQaReportOptions = {}
+): Promise<string> {
+  const dir = await ensureQaReportsDir(dataDir);
+  const id = buildReportId(report);
   const filePath = path.join(dir, `${id}.json`);
   const toStore: StoredQaReport = { ...report, id };
+
+  const tmpDir = options.tmpDir;
+  const tmpScreenshotPaths = options.tmpScreenshotPaths ?? [];
+  if (tmpDir && tmpScreenshotPaths.length > 0) {
+    const screenshots = await persistDurableScreenshots(dataDir, id, tmpDir, tmpScreenshotPaths);
+    if (screenshots.length > 0) {
+      toStore.screenshots = screenshots;
+    }
+  }
+
   await writeJsonFile(filePath, toStore);
   return id;
 }

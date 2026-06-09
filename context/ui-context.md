@@ -2,7 +2,9 @@
 
 ## Interface Surface
 
-This project does not have a web UI in the initial scope. The primary interface is Telegram chat. All user-facing output should be designed for Telegram readability, command ergonomics, and message length constraints.
+The primary interface is Telegram chat. All agent output should be designed for Telegram readability, command ergonomics, and message length constraints.
+
+A second, private surface is now being added: a read-only QA dashboard (see `context/dashboard.md` and the "Dashboard UI" section below). The dashboard does not change Telegram behavior — it is a separate read-only viewer for QA reports and screenshots.
 
 ## Telegram Experience
 
@@ -109,13 +111,32 @@ For non-whitelisted users:
 
 The initial project does not require custom visual assets. Browser screenshots produced by the browser tool are task artifacts, not UI assets.
 
-## Future Web UI
+## Dashboard UI (v1, in progress)
 
-A web dashboard is out of scope for v1. If added later, create a separate frontend context update covering:
+A private, read-only QA dashboard is now in scope. Full plan and milestones live in `context/dashboard.md`. This section captures the UI surface only.
 
-- dashboard goals
-- auth model
-- design system
-- session viewer
-- task summary history (if persistence is added)
-- tool audit log
+Purpose:
+
+- Let the owner inspect QA projects, reports, failed checks, and screenshots in a web UI instead of relying solely on Telegram messages.
+
+Surface and stack:
+
+- Separate Next.js (App Router) app under `apps/dashboard`, deployed on Vercel.
+- shadcn/ui + Tailwind, Zod-validated server-side data access.
+- Clerk sign-in required; any signed-in user may view all reports (no owner allowlist or curation). Signed-out users are blocked.
+- Read-only in v1: no agent chat, no rerun buttons, no deletion, no dashboard-triggered tool execution.
+
+Planned screens:
+
+- `/` — reports overview: project filter, summary cards (total runs, pass rate, failed checks, latest run), recent reports table with pass/fail badges, plus empty/error/loading states.
+- `/reports/[id]` — report detail: title, project, date, duration, pass/fail summary, failed checks first, full assertion list, safe details text, and a screenshot gallery loaded through authenticated server-side calls.
+
+Design intent:
+
+- Dense, calm, operational. Dark mode first.
+- Screenshots are private artifacts loaded through the authenticated Railway API, never public static assets.
+- Old reports without optional screenshot/project metadata must still render via compatibility fallbacks.
+
+## Future Demo Chat UI
+
+Out of scope for dashboard v1. A future portfolio/demo agent chat must be a separate surface (likely `/demo`) with demo-safe storage, approved demo URLs only, and stricter tool limits. It must never read private `/data`, private reports, or screenshots. See `context/dashboard.md`.

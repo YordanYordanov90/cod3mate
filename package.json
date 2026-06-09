@@ -5,6 +5,9 @@
   "description": "Private Telegram-controlled AI agent with tools, deployed on Railway",
   "type": "module",
   "main": "dist/index.js",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
@@ -12,7 +15,12 @@
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "dashboard:dev": "npm run dev --workspace apps/dashboard",
+    "dashboard:build": "npm run build --workspace apps/dashboard",
+    "dashboard:start": "npm run start --workspace apps/dashboard",
+    "dashboard:lint": "npm run lint --workspace apps/dashboard",
+    "dashboard:test": "vitest run tests/dashboard/frontend-api-client.test.ts"
   },
   "keywords": [
     "telegram",
@@ -28,6 +36,7 @@
   },
   "dependencies": {
     "@axe-core/playwright": "^4.11.3",
+    "@clerk/nextjs": "^7.4.3",
     "grammy": "^1.35.0",
     "openai": "^4.100.0",
     "playwright": "1.60.0",

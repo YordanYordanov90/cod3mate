@@ -100,6 +100,18 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
 - Runtime configuration supplied through Railway environment variables.
 - Service designed to stay always on.
 
+### Private Dashboard (v1, in progress)
+
+A private, read-only web dashboard for inspecting QA results. Previously listed as a future web UI, it is now being implemented. Full plan and milestones live in `context/dashboard.md`.
+
+- Lets the owner review QA projects, reports, failed checks, and screenshots in a web UI instead of relying solely on Telegram messages.
+- Railway remains the source of truth for QA reports and screenshots because that data already lives on the Railway volume.
+- The Next.js dashboard (deployed on Vercel) reads through a small authenticated Railway dashboard API; Vercel cannot read the Railway volume directly.
+- Dashboard v1 is a public portfolio (read-only): Clerk sign-in for any user (all reports shown; no owner allowlist or curation), server-to-server bearer token on the Railway API.
+- Screenshots are private artifacts served through the authenticated API, never as public static files.
+- No dashboard-triggered agent runs and no terminal/file/browser/OpenAI tool execution from the dashboard in v1.
+- A future portfolio/demo chat is explicitly separate work with its own demo-safe storage and stricter tool limits (see `context/dashboard.md`).
+
 ## Scope
 
 ### In Scope
@@ -116,6 +128,10 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
 - Railway Docker deployment.
 - Credential sanitization middleware.
 - Per-user or per-chat conversation history.
+- Private, read-only QA dashboard v1 (see `context/dashboard.md`):
+  - Authenticated, read-only Railway dashboard API (health, projects, reports, screenshots).
+  - Durable QA screenshot artifacts under `/data/qa-artifacts`.
+  - Next.js dashboard on Vercel with Clerk sign-in (all reports shown), calling Railway server-side only.
 
 ### Out of Scope
 
@@ -123,11 +139,13 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
 - Public bot access.
 - OpenRouter or other model gateway integrations.
 - Long-term database-backed memory beyond lightweight session persistence.
-- Full web dashboard UI.
+- Public or multi-tenant SaaS dashboard. (A private, read-only owner-only dashboard v1 is in scope — see `context/dashboard.md`.)
+- Dashboard-triggered agent runs or any terminal/file/browser/OpenAI tool execution from the dashboard in v1.
+- Public portfolio/demo agent chat. (Explicitly deferred to separate future work with demo-safe storage and stricter tool limits.)
 - Arbitrary unrestricted shell execution.
 - Permanent file storage outside `/data`.
-- Persisted report archives to GitHub, databases, or object storage.
-- OAuth login flows.
+- Persisted report archives to GitHub, databases, or object storage. (QA reports/screenshots persist on the Railway `/data` volume only; no external store.)
+- OAuth login flows for the Telegram agent itself. (Clerk auth applies only to the separate dashboard frontend.)
 
 ## Success Criteria
 

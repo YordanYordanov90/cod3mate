@@ -70,7 +70,10 @@ export async function deliverQaArtifacts(
 
   if (report && report.entries.length > 0) {
     try {
-      reportId = await saveQaReport(dataDir, report);
+      reportId = await saveQaReport(dataDir, report, {
+        tmpDir,
+        tmpScreenshotPaths: screenshotPaths,
+      });
     } catch (saveErr) {
       console.error('[qa] Failed to persist QA report:', saveErr);
     }

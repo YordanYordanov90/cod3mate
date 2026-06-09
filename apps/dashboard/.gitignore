@@ -1,0 +1,23 @@
+# Next.js
+/.next/
+/out/
+next-env.d.ts
+
+# Production build
+/build
+
+# Dependencies (hoisted to repo root)
+/node_modules
+
+# Environment & secrets (NEVER commit)
+.env
+.env*.local
+
+# Debug logs
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# clerk configuration (can include secrets)
+/.clerk/

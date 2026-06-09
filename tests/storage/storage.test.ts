@@ -30,6 +30,8 @@ describe('storage helpers', () => {
     expect(await fileExists(paths.dataDir)).toBe(true);
     expect(await fileExists(paths.sessionsDir)).toBe(true);
     expect(await fileExists(paths.qaReportsDir)).toBe(true);
+    expect(await fileExists(paths.qaArtifactsDir)).toBe(true);
+    expect(await fileExists(paths.qaScreenshotsDir)).toBe(true);
   });
 
   it('write/read text roundtrip', async () => {
@@ -58,5 +60,7 @@ describe('storage helpers', () => {
     expect(paths.soulPath).toMatch(/SOUL\.md$/);
     expect(paths.sessionsDir).toMatch(/sessions$/);
     expect(paths.qaReportsDir).toMatch(/qa-reports$/);
+    expect(paths.qaArtifactsDir).toMatch(/qa-artifacts$/);
+    expect(paths.qaScreenshotsDir).toMatch(/qa-artifacts[\\/]screenshots$/);
   });
 });
