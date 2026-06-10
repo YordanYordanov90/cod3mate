@@ -6,9 +6,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * The portfolio dashboard requires sign-in, so EVERY route is protected except
  * the auth pages. `auth.protect()` redirects signed-out users to `/sign-in`.
  *
- * This only enforces *authentication* (any signed-in Clerk user). There is no
- * owner allowlist or per-project curation — every signed-in user sees all
- * reports.
+ * This only enforces *authentication* (any signed-in Clerk user). All QA reports
+ * from the Railway API are visible to signed-in users, grouped by project hostname.
  */
 const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
 

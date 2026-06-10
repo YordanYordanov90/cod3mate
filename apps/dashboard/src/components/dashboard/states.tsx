@@ -18,7 +18,7 @@ export function EmptyState({
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">
         {activeProject
           ? "Try clearing the project filter or run a QA test from Telegram."
-          : "Reports appear here after the agent runs a QA test with assertions."}
+          : "Reports appear here after the agent runs /qa-test or uses qa_assert_* tools during a QA run."}
       </p>
       {activeProject ? (
         <Link href="/" className={`${buttonVariants({ variant: "outline" })} mt-5`}>

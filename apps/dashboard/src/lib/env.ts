@@ -8,8 +8,8 @@ import { z } from "zod";
  * calls this. The Railway API client uses {@link getRailwayApiEnv} instead so
  * M9–M11 can run without Clerk configured.
  *
- * The dashboard is a public portfolio: any signed-in Clerk user can view it,
- * and all reports are shown (no curation/allowlist).
+ * The dashboard is private to signed-in Clerk users. Reports are grouped by
+ * project hostname inferred from each QA run (no per-project env allowlist).
  *
  * SECURITY: `DASHBOARD_API_TOKEN` and `CLERK_SECRET_KEY` are server-only and
  * must never be referenced from client components or exposed to the browser.

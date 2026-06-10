@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
  * Authenticated shell for the portfolio dashboard.
  *
  * Clerk middleware (`proxy.ts`) guarantees a signed-in user reaches this layout.
- * Any signed-in user may view all reports (no owner allowlist or curation).
+ * Any signed-in user may view all QA reports, grouped by inferred project hostname.
  */
 export default async function DashboardLayout({
   children,
