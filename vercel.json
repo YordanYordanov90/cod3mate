@@ -1,4 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  },
   "ignoreCommand": "test \"$VERCEL_GIT_COMMIT_REF\" != \"feature/dashboard\""
 }
