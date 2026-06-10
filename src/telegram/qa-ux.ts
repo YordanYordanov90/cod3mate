@@ -9,6 +9,17 @@ import { saveQaReport } from '../storage/qa-reports.js';
 
 const MAX_QA_SCREENSHOTS_PER_RUN = 5;
 
+/** Appended to QA-mode tasks so the model runs assertion tools (required to persist reports). */
+export const QA_MODE_INSTRUCTION_SUFFIX = [
+  '',
+  '---',
+  'QA REPORT MODE (required for dashboard):',
+  '- Run qa_assert_visible, qa_assert_url, qa_assert_text_contains, or other qa_assert_* after each important step.',
+  '- Browser-only actions and screenshots alone do NOT save a report; at least one qa_assert_* must pass or fail.',
+  '- After login/navigation, assert the URL and a key element on the page before continuing.',
+  '- Use browser_screenshot for evidence, but always pair screenshots with qa_assert_* checks.',
+].join('\n');
+
 export interface ProcessAgentOptions {
   maxIterations?: number;
   /** Force QA report + screenshot collection on or off. */
@@ -43,6 +54,13 @@ export function shouldCollectQaReport(
     return true;
   }
   return false;
+}
+
+/** Append QA-mode guidance so structured reports are actually persisted. */
+export function augmentInstructionForQa(instruction: string): string {
+  const trimmed = instruction.trim();
+  if (!trimmed) return QA_MODE_INSTRUCTION_SUFFIX.trim();
+  return `${trimmed}\n${QA_MODE_INSTRUCTION_SUFFIX}`;
 }
 
 export interface QaDeliveryResult {
@@ -96,6 +114,16 @@ export async function deliverQaArtifacts(
 
   if (screenshotPaths.length > 0) {
     await sendQaScreenshots(ctx, tmpDir, screenshotPaths);
+  }
+
+  if (!reportId && (!report || report.entries.length === 0)) {
+    await sendSafeText(
+      ctx,
+      sanitizeString(
+        'No QA report saved (0 qa_assert_* checks ran). The web dashboard only shows saved structured reports. Re-run with /qa-test and ask for qa_assert_visible / qa_assert_url on key steps, then check /qa-history.'
+      ),
+      chunkSize
+    );
   }
 
   const out: QaDeliveryResult = { sessionSuffix };

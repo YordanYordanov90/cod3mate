@@ -9,6 +9,7 @@ import { withQaReportCollector, formatQaReport, QaCollectorRunError } from '../t
 import { listRecentQaReports, loadQaReportById } from '../storage/qa-reports.js';
 import {
   shouldCollectQaReport,
+  augmentInstructionForQa,
   deliverQaArtifacts,
   extractQaTargetUrl,
   type ProcessAgentOptions,
@@ -576,12 +577,23 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     const runTitle = userInstruction.trim().slice(0, 80) || 'Unnamed task';
     const qaTargetUrl = collectQa ? extractQaTargetUrl(userInstruction) : undefined;
 
-    const runAgentOnce = () =>
-      runAgent({
-        history: session.history.map((m) => ({ role: m.role, content: m.content })),
+    const runAgentOnce = () => {
+      const history = session.history.map((m) => ({ role: m.role, content: m.content }));
+      if (collectQa && history.length > 0) {
+        const last = history[history.length - 1];
+        if (last?.role === 'user') {
+          history[history.length - 1] = {
+            role: 'user',
+            content: augmentInstructionForQa(last.content),
+          };
+        }
+      }
+      return runAgent({
+        history,
         selectedModel: session.selectedModel ?? null,
         ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       });
+    };
 
     try {
       let agentResult: Awaited<ReturnType<typeof runAgent>>;

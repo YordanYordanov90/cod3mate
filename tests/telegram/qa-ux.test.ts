@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { extractQaTargetUrl, shouldCollectQaReport } from '../../src/telegram/qa-ux.js';
+import {
+  augmentInstructionForQa,
+  extractQaTargetUrl,
+  QA_MODE_INSTRUCTION_SUFFIX,
+  shouldCollectQaReport,
+} from '../../src/telegram/qa-ux.js';
 import {
   runQaReportCollectorSync,
   recordAssertion,
@@ -53,6 +58,15 @@ describe('shouldCollectQaReport', () => {
   it('does not collect for generic chat', () => {
     expect(shouldCollectQaReport('What is Drizzle ORM?')).toBe(false);
     expect(shouldCollectQaReport('Fix the typo in README')).toBe(false);
+  });
+});
+
+describe('augmentInstructionForQa', () => {
+  it('appends QA assertion guidance', () => {
+    const out = augmentInstructionForQa('Test the login page');
+    expect(out).toContain('Test the login page');
+    expect(out).toContain('qa_assert_visible');
+    expect(out).toContain(QA_MODE_INSTRUCTION_SUFFIX);
   });
 });
 
