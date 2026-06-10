@@ -326,15 +326,17 @@ describe('startDashboardServer (integration)', () => {
   });
 
   it('binds a port and serves health, report, and screenshot endpoints over HTTP', async () => {
-    await writeReportFile(dataDir, `${REPORT_ID}.json`, {
-      id: REPORT_ID,
+    const realisticReportId = '2026-06-10T15-30-00-000Z-pine-forge-vercel-app';
+
+    await writeReportFile(dataDir, `${realisticReportId}.json`, {
+      id: realisticReportId,
       title: 'HTTP report',
       startedAt: '2026-06-01T10:00:00.000Z',
       entries: [],
       summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
       screenshots: [{ filename: 'step-1.png' }],
     });
-    await writeScreenshot(dataDir, REPORT_ID, 'step-1.png', 'png-bytes');
+    await writeScreenshot(dataDir, realisticReportId, 'step-1.png', 'png-bytes');
 
     handle = await startDashboardServer({
       token: TOKEN,
@@ -357,29 +359,38 @@ describe('startDashboardServer (integration)', () => {
     expect(reports.status).toBe(200);
     const reportsBody = await reports.json();
     expect(reportsBody.reports).toHaveLength(1);
-    expect(reportsBody.reports[0].id).toBe(REPORT_ID);
+    expect(reportsBody.reports[0].id).toBe(realisticReportId);
 
-    const detail = await fetch(`${base}/api/dashboard/reports/${REPORT_ID}`, {
-      headers: authHeaders(),
-    });
+    const detail = await fetch(
+      `${base}/api/dashboard/reports/${encodeURIComponent(realisticReportId)}`,
+      {
+        headers: authHeaders(),
+      }
+    );
     expect(detail.status).toBe(200);
     expect(await detail.json()).toMatchObject({
       ok: true,
-      report: { id: REPORT_ID, title: 'HTTP report' },
+      report: { id: realisticReportId, title: 'HTTP report' },
     });
 
-    const screenshots = await fetch(`${base}/api/dashboard/reports/${REPORT_ID}/screenshots`, {
-      headers: authHeaders(),
-    });
+    const screenshots = await fetch(
+      `${base}/api/dashboard/reports/${encodeURIComponent(realisticReportId)}/screenshots`,
+      {
+        headers: authHeaders(),
+      }
+    );
     expect(screenshots.status).toBe(200);
     expect(await screenshots.json()).toMatchObject({
       ok: true,
       screenshots: [{ filename: 'step-1.png' }],
     });
 
-    const image = await fetch(`${base}/api/dashboard/screenshots/${REPORT_ID}/step-1.png`, {
-      headers: authHeaders(),
-    });
+    const image = await fetch(
+      `${base}/api/dashboard/screenshots/${encodeURIComponent(realisticReportId)}/step-1.png`,
+      {
+        headers: authHeaders(),
+      }
+    );
     expect(image.status).toBe(200);
     expect(image.headers.get('content-type')).toBe('image/png');
     expect(image.headers.get('cache-control')).toBe('private, max-age=300');

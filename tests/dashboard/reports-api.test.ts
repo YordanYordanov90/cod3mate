@@ -11,6 +11,7 @@ import {
   listDashboardProjects,
   listDashboardReports,
   loadDashboardReportsFromDisk,
+  sanitizeDashboardResponse,
 } from '../../src/dashboard/reports-api.js';
 import { normalizeStoredQaReport } from '../../src/dashboard/report-contract.js';
 
@@ -184,6 +185,36 @@ describe('dashboard reports API (Milestone 5)', () => {
     expect(clampReportsLimit(0)).toBe(20);
     expect(clampReportsLimit(5)).toBe(5);
     expect(clampReportsLimit(500)).toBe(100);
+  });
+
+  it('preserves report ids while redacting secrets in dashboard API payloads', () => {
+    const reportId = '2026-06-10T15-30-00-000Z-pine-forge-vercel-app';
+    const report = normalizeStoredQaReport({
+      id: reportId,
+      title: 'QA: https://pine-forge.vercel.app',
+      startedAt: '2026-06-10T15:30:00.000Z',
+      entries: [
+        {
+          name: 'qa_assert_visible',
+          status: 'pass',
+          details: 'token sk-abcdefghijklmnopqrstuvwxyz123456',
+        },
+      ],
+      summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+    });
+
+    const listPayload = sanitizeDashboardResponse({
+      ok: true,
+      reports: [report],
+      nextCursor: 'cursor-token-should-stay-intact',
+    });
+    expect(listPayload.reports[0]?.id).toBe(reportId);
+    expect(listPayload.reports[0]?.entries[0]?.details).toContain('[REDACTED]');
+    expect(listPayload.nextCursor).toBe('cursor-token-should-stay-intact');
+
+    const detailPayload = sanitizeDashboardResponse({ ok: true, report });
+    expect(detailPayload.report.id).toBe(reportId);
+    expect(detailPayload.report.entries[0]?.details).toContain('[REDACTED]');
   });
 
   it('loads a single report by id', async () => {

@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingHttpHeaders, ServerResponse } from 'node:http';
-import { sanitizeString } from '../security/sanitize.js';
 import {
   getDashboardReportById,
   listDashboardProjects,
@@ -236,7 +235,7 @@ export function writeDashboardRouteResult(res: ServerResponse, result: Dashboard
     return;
   }
 
-  const payload = sanitizeString(JSON.stringify(result.body));
+  const payload = JSON.stringify(result.body);
   res.writeHead(result.status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',

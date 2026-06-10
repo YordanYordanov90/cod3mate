@@ -2,11 +2,13 @@ import path from 'node:path';
 import { readdir, stat } from 'node:fs/promises';
 import { readJsonFile, getStoragePaths } from '../storage/mod.js';
 import { loadQaReportById } from '../storage/qa-reports.js';
-import { sanitizeObject } from '../security/sanitize.js';
+import { sanitizeString } from '../security/sanitize.js';
 import {
   normalizeStoredQaReport,
   parseStoredQaReportJson,
   type DashboardReport,
+  type DashboardReportEntry,
+  type DashboardScreenshot,
 } from './report-contract.js';
 
 export const DEFAULT_REPORTS_LIMIT = 20;
@@ -178,7 +180,83 @@ export async function getDashboardReportById(
   return normalizeStoredQaReport(parsed);
 }
 
-/** Deep-sanitize dashboard API payloads before they leave the process. */
+function sanitizeDashboardReportEntry(entry: DashboardReportEntry): DashboardReportEntry {
+  const sanitized: DashboardReportEntry = {
+    name: entry.name,
+    status: entry.status,
+  };
+  if (entry.durationMs != null) {
+    sanitized.durationMs = entry.durationMs;
+  }
+  if (entry.details) {
+    sanitized.details = sanitizeString(entry.details);
+  }
+  return sanitized;
+}
+
+function sanitizeDashboardScreenshotMeta(shot: DashboardScreenshot): DashboardScreenshot {
+  const sanitized: DashboardScreenshot = { filename: shot.filename };
+  if (shot.label) {
+    sanitized.label = sanitizeString(shot.label);
+  }
+  return sanitized;
+}
+
+function sanitizeDashboardReport(report: DashboardReport): DashboardReport {
+  const sanitized: DashboardReport = {
+    id: report.id,
+    title: sanitizeString(report.title),
+    project: report.project,
+    startedAt: report.startedAt,
+    summary: report.summary,
+    entries: report.entries.map(sanitizeDashboardReportEntry),
+    screenshots: report.screenshots.map(sanitizeDashboardScreenshotMeta),
+  };
+  if (report.endedAt) {
+    sanitized.endedAt = report.endedAt;
+  }
+  if (report.durationMs != null) {
+    sanitized.durationMs = report.durationMs;
+  }
+  return sanitized;
+}
+
+/**
+ * Sanitize dashboard API payloads before they leave the process.
+ *
+ * Preserves structural identifiers (report ids, screenshot filenames, cursors)
+ * so the Next.js dashboard can link list rows to detail routes. Only scrubs
+ * free-text fields that may contain secrets.
+ */
 export function sanitizeDashboardResponse<T>(payload: T): T {
-  return sanitizeObject(payload);
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const body = payload as Record<string, unknown>;
+
+  if (body.ok === true && Array.isArray(body.reports)) {
+    return {
+      ...body,
+      reports: (body.reports as DashboardReport[]).map(sanitizeDashboardReport),
+    } as T;
+  }
+
+  if (body.ok === true && body.report && typeof body.report === 'object') {
+    return {
+      ...body,
+      report: sanitizeDashboardReport(body.report as DashboardReport),
+    } as T;
+  }
+
+  if (body.ok === true && Array.isArray(body.screenshots)) {
+    return {
+      ...body,
+      screenshots: (body.screenshots as DashboardScreenshot[]).map(
+        sanitizeDashboardScreenshotMeta
+      ),
+    } as T;
+  }
+
+  return payload;
 }
