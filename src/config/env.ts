@@ -1,6 +1,20 @@
 import { z } from 'zod';
 
 /**
+ * Parse a boolean from an environment string without the `z.coerce.boolean`
+ * footgun (which treats the literal string "false" as true). Only explicit
+ * truthy tokens enable a flag; everything else is false.
+ */
+const envBoolean = (defaultValue: boolean) =>
+  z.preprocess((val) => {
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'string') {
+      return ['1', 'true', 'yes', 'on'].includes(val.trim().toLowerCase());
+    }
+    return defaultValue;
+  }, z.boolean());
+
+/**
  * Zod schema for all environment variables.
  * Required vars fail fast with safe error messages (no secret values).
  */
@@ -35,6 +49,16 @@ const EnvSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   ENABLE_FILE_LOGS: z.coerce.boolean().default(false),
 
+  // Dashboard API (Milestone 4) — optional read-only HTTP layer consumed by the
+  // private Vercel dashboard. Disabled by default; bot polling is unaffected.
+  // When enabled, DASHBOARD_API_TOKEN is required and guards every
+  // /api/dashboard/* route via server-to-server bearer auth.
+  DASHBOARD_API_ENABLED: envBoolean(false).default(false),
+  DASHBOARD_API_TOKEN: z.string().min(1).optional(),
+  DASHBOARD_API_PORT: z.coerce.number().int().positive().optional(),
+  // Railway injects PORT at runtime; used as a fallback for the dashboard API.
+  PORT: z.coerce.number().int().positive().optional(),
+
   // Optional - Test credentials for browser-based testing.
   // When both are set, the agent receives them via the system prompt under a
   // strict "use silently, never echo" policy. They are also registered with
@@ -46,9 +70,30 @@ const EnvSchema = z.object({
   // Phase 8: Multi-app test credentials via env pattern TEST_CREDENTIALS_<APP>_EMAIL / _PASSWORD
   // e.g. TEST_CREDENTIALS_CLOUDCASTAI_EMAIL, TEST_CREDENTIALS_CLOUDCASTAI_PASSWORD
   // Parsed dynamically below; raw values remain in the env object due to passthrough.
-}).passthrough();
+})
+  .passthrough()
+  .superRefine((env, ctx) => {
+    if (!env.DASHBOARD_API_ENABLED) return;
+    const token = env.DASHBOARD_API_TOKEN;
+    if (!token || token.length < 16) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DASHBOARD_API_TOKEN'],
+        message:
+          'DASHBOARD_API_TOKEN is required (min 16 chars) when DASHBOARD_API_ENABLED is true',
+      });
+    }
+  });
 
 export type Env = z.infer<typeof EnvSchema>;
+
+/**
+ * Resolve the port for the dashboard API.
+ * Priority: explicit DASHBOARD_API_PORT → Railway PORT → 8080 default.
+ */
+export function resolveDashboardPort(env: Env): number {
+  return env.DASHBOARD_API_PORT ?? env.PORT ?? 8080;
+}
 
 /**
  * Load and validate environment at startup.
@@ -97,10 +142,13 @@ export function getEnvSummary(env: Env): Record<string, unknown> {
     TELEGRAM_CHUNK_SIZE: env.TELEGRAM_CHUNK_SIZE,
     LOG_LEVEL: env.LOG_LEVEL,
     ENABLE_FILE_LOGS: env.ENABLE_FILE_LOGS,
+    DASHBOARD_API_ENABLED: env.DASHBOARD_API_ENABLED,
+    DASHBOARD_API_PORT: env.DASHBOARD_API_ENABLED ? resolveDashboardPort(env) : undefined,
     // presence flags only for secrets
     hasTelegramToken: Boolean(env.TELEGRAM_BOT_TOKEN),
     hasOpenAIKey: Boolean(env.OPENAI_API_KEY),
     hasTavilyKey: Boolean(env.TAVILY_API_KEY),
+    hasDashboardApiToken: Boolean(env.DASHBOARD_API_TOKEN),
     hasTestCredentials: Boolean(env.TEST_ACCOUNT_EMAIL && env.TEST_ACCOUNT_PASSWORD),
     hasMultiTestCredentials: Object.keys(getAppCredentials(env)).length > 0,
   };

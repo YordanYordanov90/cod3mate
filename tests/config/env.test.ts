@@ -78,6 +78,80 @@ describe('env validation', () => {
     expect(summary.TELEGRAM_ALLOWED_USER_ID).toBe(111222333);
   });
 
+  it('defaults the dashboard API to disabled', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token-123';
+    process.env.TELEGRAM_ALLOWED_USER_ID = '987654321';
+    process.env.OPENAI_API_KEY = 'sk-test-openai';
+    process.env.OPENAI_PRIMARY_MODEL = 'gpt-test-primary';
+    process.env.OPENAI_FALLBACK_MODEL = 'gpt-test-fallback';
+    process.env.TAVILY_API_KEY = 'tvly-test';
+
+    const env = loadEnv();
+    expect(env.DASHBOARD_API_ENABLED).toBe(false);
+    expect(getEnvSummary(env).DASHBOARD_API_ENABLED).toBe(false);
+  });
+
+  it('does not treat DASHBOARD_API_ENABLED="false" as enabled', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token-123';
+    process.env.TELEGRAM_ALLOWED_USER_ID = '987654321';
+    process.env.OPENAI_API_KEY = 'sk-test-openai';
+    process.env.OPENAI_PRIMARY_MODEL = 'gpt-test-primary';
+    process.env.OPENAI_FALLBACK_MODEL = 'gpt-test-fallback';
+    process.env.TAVILY_API_KEY = 'tvly-test';
+    process.env.DASHBOARD_API_ENABLED = 'false';
+
+    expect(loadEnv().DASHBOARD_API_ENABLED).toBe(false);
+  });
+
+  it('requires a strong DASHBOARD_API_TOKEN when the dashboard API is enabled', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token-123';
+    process.env.TELEGRAM_ALLOWED_USER_ID = '987654321';
+    process.env.OPENAI_API_KEY = 'sk-test-openai';
+    process.env.OPENAI_PRIMARY_MODEL = 'gpt-test-primary';
+    process.env.OPENAI_FALLBACK_MODEL = 'gpt-test-fallback';
+    process.env.TAVILY_API_KEY = 'tvly-test';
+    process.env.DASHBOARD_API_ENABLED = 'true';
+
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit called');
+    }) as never);
+    const mockError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => loadEnv()).toThrow('process.exit called');
+    const errorCalls = mockError.mock.calls.flat().join(' ');
+    expect(errorCalls).toContain('DASHBOARD_API_TOKEN');
+
+    mockExit.mockRestore();
+    mockError.mockRestore();
+  });
+
+  it('loads dashboard config and resolves port when enabled with a token', async () => {
+    vi.resetModules();
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token-123';
+    process.env.TELEGRAM_ALLOWED_USER_ID = '987654321';
+    process.env.OPENAI_API_KEY = 'sk-test-openai';
+    process.env.OPENAI_PRIMARY_MODEL = 'gpt-test-primary';
+    process.env.OPENAI_FALLBACK_MODEL = 'gpt-test-fallback';
+    process.env.TAVILY_API_KEY = 'tvly-test';
+    process.env.DASHBOARD_API_ENABLED = '1';
+    process.env.DASHBOARD_API_TOKEN = 'a-sufficiently-long-token-value';
+    process.env.PORT = '4567';
+
+    const { loadEnv, getEnvSummary, resolveDashboardPort } = await import('../../src/config/env.js');
+    const env = loadEnv();
+    expect(env.DASHBOARD_API_ENABLED).toBe(true);
+    expect(resolveDashboardPort(env)).toBe(4567);
+
+    const summary = getEnvSummary(env);
+    expect(summary.hasDashboardApiToken).toBe(true);
+    expect(summary.DASHBOARD_API_PORT).toBe(4567);
+    expect(summary).not.toHaveProperty('DASHBOARD_API_TOKEN');
+
+    delete process.env.DASHBOARD_API_ENABLED;
+    delete process.env.DASHBOARD_API_TOKEN;
+    delete process.env.PORT;
+  });
+
   it('getAppCredentials and summary handle Phase 8 multi-app (complete pairs only)', async () => {
     // dynamic import to reset
     vi.resetModules();

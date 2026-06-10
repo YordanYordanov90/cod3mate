@@ -1,5 +1,6 @@
-import { loadEnv, getEnvSummary } from './config/env.js';
+import { loadEnv, getEnvSummary, resolveDashboardPort } from './config/env.js';
 import { createBot, startBot } from './telegram/bot.js';
+import { startDashboardServer } from './dashboard/server.js';
 import { ensureDataDirectories } from './storage/mod.js';
 import { mkdir } from 'node:fs/promises';
 import { loadSoul } from './soul/mod.js';
@@ -251,16 +252,44 @@ async function main() {
     ...(Object.keys(appCredentials).length > 0 ? { appCredentials } : {}),
   });
 
-  // Prepare a stop function we can call from signal handlers
+  // Prepare stop functions we can call from signal handlers
   let stopBot: (() => Promise<void>) | undefined;
+  let stopDashboard: (() => Promise<void>) | undefined;
 
   // Register shutdown handlers **before** starting the long-running poller
   setupGracefulShutdown(async () => {
     if (stopBot) {
       await stopBot();
     }
+    if (stopDashboard) {
+      try {
+        await stopDashboard();
+      } catch (e) {
+        console.error('[shutdown] Error stopping dashboard API:', e);
+      }
+    }
     await closeBrowser();
   });
+
+  // === Milestone 4: optional read-only dashboard API (auth + health only) ===
+  if (env.DASHBOARD_API_ENABLED && env.DASHBOARD_API_TOKEN) {
+    // Ensure the server-to-server token never appears in logs or outputs.
+    registerSecret(env.DASHBOARD_API_TOKEN);
+    const port = resolveDashboardPort(env);
+    try {
+      const dashboard = await startDashboardServer({
+        token: env.DASHBOARD_API_TOKEN,
+        dataDir: env.DATA_DIR,
+        port,
+      });
+      stopDashboard = dashboard.close;
+      console.log(`[startup] Dashboard API enabled on port ${dashboard.port} (reports read API).`);
+    } catch (e) {
+      console.error('[startup] Failed to start dashboard API:', e);
+    }
+  } else {
+    console.log('[startup] Dashboard API disabled (set DASHBOARD_API_ENABLED=true and DASHBOARD_API_TOKEN).');
+  }
 
   console.log('✅ Telegram bot running (long polling). Owner-only access enforced.');
   console.log('Agent loop + tools active. SOUL + sessions loaded. Ready for tasks.\n');

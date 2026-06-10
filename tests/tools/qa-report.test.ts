@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, access, readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { getQaArtifactPaths } from '../../src/storage/qa-artifacts.js';
+import { normalizeStoredQaReport } from '../../src/dashboard/report-contract.js';
 import {
   runQaReportCollectorSync,
   withQaReportCollector,
@@ -198,6 +200,43 @@ describe('QA report persistence (Phase 2)', () => {
       expect(err.partial.report!.summary.total).toBe(1);
       expect(err.partial.screenshotPaths).toEqual([]);
     }
+  });
+
+  it('saveQaReport persists durable screenshot metadata and copies files', async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'cod3mate-qa-tmp-shots-'));
+    const screenshotRel = 'screenshots/login.png';
+    await mkdir(path.join(tmpDir, 'screenshots'), { recursive: true });
+    await writeFile(path.join(tmpDir, screenshotRel), 'fake-png');
+
+    const { report } = runQaReportCollectorSync('Login screenshots', () => {
+      recordAssertion('dashboard visible', makeAssertion(true));
+      recordQaScreenshot(screenshotRel);
+    });
+
+    const id = await saveQaReport(tempDataDir, report!, {
+      tmpDir,
+      tmpScreenshotPaths: [screenshotRel],
+    });
+
+    const loaded = await loadQaReportById(tempDataDir, id);
+    expect(loaded?.screenshots).toEqual([
+      {
+        filename: 'login.png',
+        path: `${id}/login.png`,
+        label: screenshotRel,
+      },
+    ]);
+
+    const durableFile = path.join(getQaArtifactPaths(tempDataDir).screenshotsRoot, id, 'login.png');
+    await expect(access(durableFile)).resolves.toBeUndefined();
+    await expect(readFile(durableFile, 'utf8')).resolves.toBe('fake-png');
+
+    const dashboardView = normalizeStoredQaReport(loaded!);
+    expect(dashboardView.screenshots).toEqual([
+      { filename: 'login.png', label: screenshotRel },
+    ]);
+
+    await rm(tmpDir, { recursive: true, force: true });
   });
 
   it('loadQaReportById retrieves full report after save', async () => {
