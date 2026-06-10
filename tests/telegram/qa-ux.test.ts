@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   augmentInstructionForQa,
   extractQaTargetUrl,
+  parseSlashCommand,
   QA_MODE_INSTRUCTION_SUFFIX,
   shouldCollectQaReport,
 } from '../../src/telegram/qa-ux.js';
@@ -58,6 +59,19 @@ describe('shouldCollectQaReport', () => {
   it('does not collect for generic chat', () => {
     expect(shouldCollectQaReport('What is Drizzle ORM?')).toBe(false);
     expect(shouldCollectQaReport('Fix the typo in README')).toBe(false);
+  });
+});
+
+describe('parseSlashCommand', () => {
+  it('parses command and args from hyphenated slash messages', () => {
+    expect(parseSlashCommand('/qa-history')).toEqual({
+      command: '/qa-history',
+      argsText: '',
+    });
+    expect(parseSlashCommand('/qa-test@codmate_bot https://app.example.com run checks')).toEqual({
+      command: '/qa-test',
+      argsText: 'https://app.example.com run checks',
+    });
   });
 });
 

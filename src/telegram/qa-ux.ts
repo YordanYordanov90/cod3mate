@@ -56,6 +56,16 @@ export function shouldCollectQaReport(
   return false;
 }
 
+/** Parse `/command@bot args` from a text message (works for hyphenated pseudo-commands). */
+export function parseSlashCommand(text: string): { command: string; argsText: string } {
+  const trimmed = text.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  const head = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+  const argsText = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
+  const command = (head.split('@')[0] ?? '').toLowerCase();
+  return { command, argsText };
+}
+
 /** Append QA-mode guidance so structured reports are actually persisted. */
 export function augmentInstructionForQa(instruction: string): string {
   const trimmed = instruction.trim();
