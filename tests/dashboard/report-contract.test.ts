@@ -103,6 +103,25 @@ describe('dashboard report contract (Milestone 2)', () => {
     expect(inferProjectFromStoredReport(report)).toBe('cloudcast');
   });
 
+  it('normalizes legacy summaries that omit skipped', () => {
+    const report = makeOldStoredReport({
+      summary: { total: 2, passed: 1, failed: 1 },
+      entries: [
+        { name: 'passes', status: 'pass' },
+        { name: 'fails', status: 'fail' },
+      ],
+    });
+
+    const normalized = normalizeStoredQaReport(report);
+    expect(normalized.summary).toEqual({
+      total: 2,
+      passed: 1,
+      failed: 1,
+      skipped: 0,
+    });
+    expect(() => dashboardReportSchema.parse(normalized)).not.toThrow();
+  });
+
   it('falls back to unknown when no URL or project is available', () => {
     const report = makeOldStoredReport({
       title: 'Verify pricing table renders three tiers',

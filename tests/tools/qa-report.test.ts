@@ -239,6 +239,36 @@ describe('QA report persistence (Phase 2)', () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
+  it('saveQaReport prefers explicit targetUrl over title parsing', async () => {
+    const { report } = runQaReportCollectorSync('QA: generic run', () => {
+      recordAssertion('check', makeAssertion(true));
+    });
+
+    const id = await saveQaReport(tempDataDir, report!, {
+      targetUrl: 'https://other.example.com/app',
+    });
+    const loaded = await loadQaReportById(tempDataDir, id);
+
+    expect(loaded?.targetUrl).toBe('https://other.example.com/app');
+    expect(loaded?.project).toBe('other.example.com');
+  });
+
+  it('saveQaReport persists inferred project and targetUrl from the title', async () => {
+    const { report } = runQaReportCollectorSync(
+      'QA: login flow Target: https://app.cloudcast.ai/dashboard',
+      () => {
+        recordAssertion('dashboard visible', makeAssertion(true));
+      }
+    );
+
+    const id = await saveQaReport(tempDataDir, report!);
+    const loaded = await loadQaReportById(tempDataDir, id);
+
+    expect(loaded?.targetUrl).toBe('https://app.cloudcast.ai/dashboard');
+    expect(loaded?.project).toBe('app.cloudcast.ai');
+    expect(normalizeStoredQaReport(loaded!).project).toBe('app.cloudcast.ai');
+  });
+
   it('loadQaReportById retrieves full report after save', async () => {
     const { report } = runQaReportCollectorSync('load me', () => {
       recordAssertion('check', makeAssertion(false));

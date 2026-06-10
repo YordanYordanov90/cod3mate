@@ -157,7 +157,12 @@ function computeSummary(
   existing?: QaReportSummary
 ): DashboardReportSummary {
   if (existing) {
-    return existing;
+    return {
+      total: existing.total,
+      passed: existing.passed,
+      failed: existing.failed,
+      skipped: existing.skipped ?? entries.filter((e) => e.status === 'skip').length,
+    };
   }
   return {
     total: entries.length,

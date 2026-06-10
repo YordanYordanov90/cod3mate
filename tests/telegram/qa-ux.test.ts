@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { shouldCollectQaReport } from '../../src/telegram/qa-ux.js';
+import { extractQaTargetUrl, shouldCollectQaReport } from '../../src/telegram/qa-ux.js';
 import {
   runQaReportCollectorSync,
   recordAssertion,
@@ -16,6 +16,24 @@ function makeAssertion(passed: boolean): AssertionResult {
     message: 'ok',
   };
 }
+
+describe('extractQaTargetUrl', () => {
+  it('extracts Target: URL from /qa-test-style instructions', () => {
+    expect(
+      extractQaTargetUrl('login flow Target: https://app.cloudcast.ai/dashboard')
+    ).toBe('https://app.cloudcast.ai/dashboard');
+  });
+
+  it('falls back to the first http(s) URL in the instruction', () => {
+    expect(extractQaTargetUrl('Check https://www.example.com/pricing renders')).toBe(
+      'https://www.example.com/pricing'
+    );
+  });
+
+  it('returns undefined when no URL is present', () => {
+    expect(extractQaTargetUrl('Verify the pricing table renders three tiers')).toBeUndefined();
+  });
+});
 
 describe('shouldCollectQaReport', () => {
   it('forces on when collectQaReport is true', () => {

@@ -10,6 +10,7 @@ import { listRecentQaReports, loadQaReportById } from '../storage/qa-reports.js'
 import {
   shouldCollectQaReport,
   deliverQaArtifacts,
+  extractQaTargetUrl,
   type ProcessAgentOptions,
 } from './qa-ux.js';
 import type { TestCredentials } from '../agent/prompt.js';
@@ -511,6 +512,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
           chunkSize: env.TELEGRAM_CHUNK_SIZE,
           report: qaReport,
           screenshotPaths,
+          ...(scenario.baseUrl ? { targetUrl: scenario.baseUrl } : {}),
         });
         assistantLine += sessionSuffix;
       } else {
@@ -572,6 +574,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
 
     const collectQa = shouldCollectQaReport(userInstruction, options);
     const runTitle = userInstruction.trim().slice(0, 80) || 'Unnamed task';
+    const qaTargetUrl = collectQa ? extractQaTargetUrl(userInstruction) : undefined;
 
     const runAgentOnce = () =>
       runAgent({
@@ -623,6 +626,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
           chunkSize: env.TELEGRAM_CHUNK_SIZE,
           report: qaReport,
           screenshotPaths,
+          ...(qaTargetUrl ? { targetUrl: qaTargetUrl } : {}),
         });
         assistantContent += sessionSuffix;
       }
@@ -643,6 +647,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
           report: err.partial.report,
           screenshotPaths: err.partial.screenshotPaths,
           reportPrefix: 'QA run ended with an error. Partial results:\n\n',
+          ...(qaTargetUrl ? { targetUrl: qaTargetUrl } : {}),
         });
       }
 

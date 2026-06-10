@@ -53,6 +53,16 @@ export interface QaDeliveryResult {
 /**
  * Persist report, send formatted report text, and deliver queued screenshots to Telegram.
  */
+/** Pull an explicit http(s) target from /qa-test-style instructions (`Target: <url>`). */
+export function extractQaTargetUrl(text: string): string | undefined {
+  const targetMatch = /\btarget:\s*(https?:\/\/\S+)/i.exec(text);
+  if (targetMatch?.[1]) {
+    return targetMatch[1].replace(/[.,;:!?)]+$/, '');
+  }
+  const firstUrl = text.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0];
+  return firstUrl?.replace(/[.,;:!?)]+$/, '');
+}
+
 export async function deliverQaArtifacts(
   ctx: Context,
   args: {
@@ -62,9 +72,10 @@ export async function deliverQaArtifacts(
     report: QaReport | null;
     screenshotPaths: string[];
     reportPrefix?: string;
+    targetUrl?: string;
   }
 ): Promise<QaDeliveryResult> {
-  const { dataDir, tmpDir, chunkSize, report, screenshotPaths, reportPrefix = '' } = args;
+  const { dataDir, tmpDir, chunkSize, report, screenshotPaths, reportPrefix = '', targetUrl } = args;
   let reportId: string | undefined;
   let sessionSuffix = '';
 
@@ -73,6 +84,7 @@ export async function deliverQaArtifacts(
       reportId = await saveQaReport(dataDir, report, {
         tmpDir,
         tmpScreenshotPaths: screenshotPaths,
+        ...(targetUrl ? { targetUrl } : {}),
       });
     } catch (saveErr) {
       console.error('[qa] Failed to persist QA report:', saveErr);
