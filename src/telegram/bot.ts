@@ -272,8 +272,8 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     await sendSafe(ctx, `Switched this chat to custom model: ${customModel}`, env.TELEGRAM_CHUNK_SIZE);
   });
 
-  // QA report history (Phase 2)
-  bot.command('qa-history', async (ctx) => {
+  // QA report history (Phase 2) — include common typo so owners get a reply
+  bot.command(['qa-history', 'qa-hisotry'], async (ctx) => {
     if (!dataDir) {
       await sendSafe(ctx, 'QA reports storage not available.', env.TELEGRAM_CHUNK_SIZE);
       return;
@@ -406,6 +406,12 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       await sendSafe(ctx, 'Please provide a description of what to QA test.', env.TELEGRAM_CHUNK_SIZE);
       return;
     }
+
+    await sendSafe(
+      ctx,
+      'Starting /qa-test (browser reset, up to 25 tool rounds). Watch for typing — this can take several minutes.',
+      env.TELEGRAM_CHUNK_SIZE
+    );
 
     // Reset browser for clean isolated QA state (clears page, context, console/net captures)
     if (resetBrowser) {
@@ -673,11 +679,34 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     }
   }
 
+  const knownCommands = new Set([
+    '/start',
+    '/help',
+    '/status',
+    '/reset',
+    '/model',
+    '/qa-history',
+    '/qa-hisotry',
+    '/qa-report',
+    '/qa-scenarios',
+    '/qa-test',
+    '/qa-run',
+  ]);
+
   // Generic message handler — delegates to shared processor (Phase 5 refactor for /qa-test sharing)
   bot.on('message:text', async (ctx) => {
-    if (ctx.message.text?.startsWith('/')) return;
-
     const userText = ctx.message.text ?? '';
+    if (userText.startsWith('/')) {
+      const command = (userText.split(/\s+/)[0] ?? '').split('@')[0]?.toLowerCase() ?? '';
+      if (command && !knownCommands.has(command)) {
+        await sendSafe(
+          ctx,
+          `Unknown command: ${command}\n\nTry /help — QA reports use /qa-history (not /qa-hisotry).`,
+          env.TELEGRAM_CHUNK_SIZE
+        );
+      }
+      return;
+    }
     if (!userText.trim()) return;
 
     await processAgentTask(ctx, userText);
