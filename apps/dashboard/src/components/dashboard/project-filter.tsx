@@ -7,11 +7,11 @@ function chipHref(project: string | null): string {
 }
 
 const baseChip =
-  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-[background-color,border-color,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const activeChip = "border-primary/40 bg-primary/15 text-foreground";
 const idleChip =
-  "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground";
+  "border-border bg-card/60 text-muted-foreground hover:border-border hover:bg-card hover:text-foreground";
 
 export function ProjectFilter({
   projects,

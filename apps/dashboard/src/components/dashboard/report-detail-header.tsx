@@ -32,7 +32,7 @@ export function ReportDetailHeader({
     <header className="space-y-5">
       <Link
         href="/"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors duration-150 ease-out hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-[color,transform] duration-150 ease-out hover:text-foreground active:scale-[0.97]"
       >
         <ArrowLeft className="size-4" aria-hidden />
         Reports
@@ -40,7 +40,7 @@ export function ReportDetailHeader({
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          <h1 className="text-xl font-semibold tracking-tight text-balance text-foreground sm:text-2xl">
             {report.title}
           </h1>
           <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -51,7 +51,7 @@ export function ReportDetailHeader({
         <StatusBadge status={status} />
       </div>
 
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border bg-card px-4 py-3.5 sm:grid-cols-4">
+      <dl className="surface-card grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5 sm:grid-cols-4">
         <MetaItem
           label="Started"
           value={formatRelative(report.startedAt, now)}

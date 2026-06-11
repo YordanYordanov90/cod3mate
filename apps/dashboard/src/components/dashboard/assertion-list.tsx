@@ -1,7 +1,15 @@
-import { CircleCheck, CircleX, MinusCircle, type LucideIcon } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Layers,
+  MinusCircle,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DashboardReport } from "@/lib/api-contract";
 import { formatDuration } from "@/lib/format";
+import { SectionHeader } from "./section-header";
 
 type EntryStatus = DashboardReport["entries"][number]["status"];
 type Entry = DashboardReport["entries"][number];
@@ -37,7 +45,7 @@ function AssertionRow({ entry }: { entry: Entry }) {
           ) : null}
         </div>
         {entry.details ? (
-          <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground">
+          <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-background/40 px-3 py-2 font-mono text-xs leading-relaxed text-muted-foreground">
             {entry.details}
           </pre>
         ) : null}
@@ -50,29 +58,24 @@ function Section({
   title,
   count,
   tone,
+  icon,
   children,
 }: {
   title: string;
   count: number;
   tone?: "destructive";
+  icon?: LucideIcon;
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-2.5">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        {title}
-        <span
-          className={cn(
-            "rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums",
-            tone === "destructive"
-              ? "bg-destructive/10 text-destructive"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {count}
-        </span>
-      </h2>
-      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
+    <section className="space-y-3">
+      <SectionHeader
+        title={title}
+        count={count}
+        icon={icon ?? Layers}
+        {...(tone ? { tone } : {})}
+      />
+      <ul className="surface-card divide-y divide-border/80 overflow-hidden">
         {children}
       </ul>
     </section>
@@ -84,7 +87,7 @@ export function AssertionList({ report }: { report: DashboardReport }) {
 
   if (entries.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center text-sm text-muted-foreground">
+      <div className="surface-card border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
         This report has no recorded assertions.
       </div>
     );
@@ -93,9 +96,14 @@ export function AssertionList({ report }: { report: DashboardReport }) {
   const failed = entries.filter((e) => e.status === "fail");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {failed.length > 0 ? (
-        <Section title="Failed checks" count={failed.length} tone="destructive">
+        <Section
+          title="Failed checks"
+          count={failed.length}
+          tone="destructive"
+          icon={CircleAlert}
+        >
           {failed.map((entry, i) => (
             <AssertionRow key={`fail-${i}`} entry={entry} />
           ))}

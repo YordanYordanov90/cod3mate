@@ -23,8 +23,10 @@ export async function ReportsOverview({ project }: { project?: string }) {
   const { projects, reports, summary, activeProject, now } = result;
 
   return (
-    <div className="space-y-6">
-      <ProjectFilter projects={projects} activeProject={activeProject} />
+    <div className="space-y-8">
+      <div className="fade-up">
+        <ProjectFilter projects={projects} activeProject={activeProject} />
+      </div>
 
       <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard

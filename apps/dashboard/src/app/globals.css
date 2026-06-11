@@ -119,19 +119,29 @@ body {
   }
 }
 
-/* Auth landing — subtle depth without visual noise. */
+/* Surface depth — shared by auth landing and dashboard shell. */
+.surface-panel,
 .auth-panel {
   background-color: oklch(0.12 0 0);
 }
 
+.surface-grid-bg,
 .auth-grid-bg {
   background-image:
     linear-gradient(to right, oklch(1 0 0 / 2.5%) 1px, transparent 1px),
     linear-gradient(to bottom, oklch(1 0 0 / 2.5%) 1px, transparent 1px);
   background-size: 3rem 3rem;
+}
+
+.surface-grid-bg--fade {
+  mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+}
+
+.auth-grid-bg {
   mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
 }
 
+.surface-glow::before,
 .auth-glow::before {
   content: "";
   position: absolute;
@@ -147,4 +157,12 @@ body {
       oklch(0.62 0.19 250 / 6%),
       transparent 70%
     );
+}
+
+/* Elevated panels — translucent cards over the ambient surface. */
+.surface-card {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background-color: oklch(0.205 0 0 / 55%);
+  backdrop-filter: blur(10px);
 }

@@ -23,26 +23,42 @@ export function StatCard({
   tone?: StatTone;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3.5">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
+    <div className="surface-card px-4 py-3.5">
+      <div className="flex items-start gap-3">
         {Icon ? (
-          <Icon className="size-4 text-muted-foreground" aria-hidden />
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background/40">
+            <Icon
+              className={cn(
+                "size-3.5",
+                tone === "success"
+                  ? "text-success"
+                  : tone === "destructive"
+                    ? "text-destructive"
+                    : "text-primary",
+              )}
+              aria-hidden
+            />
+          </span>
         ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p
+            className={cn(
+              "mt-1.5 text-2xl font-semibold tabular-nums tracking-tight",
+              VALUE_TONE[tone],
+            )}
+          >
+            {value}
+          </p>
+          {sub ? (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {sub}
+            </p>
+          ) : null}
+        </div>
       </div>
-      <p
-        className={cn(
-          "mt-2 text-2xl font-semibold tabular-nums tracking-tight",
-          VALUE_TONE[tone],
-        )}
-      >
-        {value}
-      </p>
-      {sub ? (
-        <p className="mt-0.5 truncate text-xs text-muted-foreground">{sub}</p>
-      ) : null}
     </div>
   );
 }

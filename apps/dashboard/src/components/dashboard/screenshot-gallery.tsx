@@ -1,6 +1,7 @@
-import { ImageOff } from "lucide-react";
+import { Camera, ImageOff } from "lucide-react";
 import type { DashboardScreenshot } from "@/lib/api-contract";
 import { screenshotProxyUrl } from "@/lib/report-detail";
+import { SectionHeader } from "./section-header";
 
 export function ScreenshotGallery({
   reportId,
@@ -10,19 +11,14 @@ export function ScreenshotGallery({
   screenshots: DashboardScreenshot[];
 }) {
   return (
-    <section className="space-y-2.5">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        Screenshots
-        <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-          {screenshots.length}
-        </span>
-      </h2>
+    <section className="space-y-3">
+      <SectionHeader title="Screenshots" count={screenshots.length} icon={Camera} />
 
       {screenshots.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 py-12 text-center">
-          <div className="flex size-11 items-center justify-center rounded-full bg-muted">
+        <div className="surface-card flex flex-col items-center justify-center border-dashed px-6 py-12 text-center">
+          <span className="flex size-11 items-center justify-center rounded-lg border border-border bg-card/60">
             <ImageOff className="size-5 text-muted-foreground" aria-hidden />
-          </div>
+          </span>
           <p className="mt-3 text-sm text-muted-foreground">
             No screenshots were captured for this report.
           </p>
@@ -38,9 +34,9 @@ export function ScreenshotGallery({
                   href={src}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group block overflow-hidden rounded-lg border border-border bg-card transition-colors duration-150 ease-out hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="surface-card group block overflow-hidden transition-[border-color,transform] duration-150 ease-out hover:border-primary/40 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <div className="aspect-video overflow-hidden bg-muted">
+                  <div className="aspect-video overflow-hidden bg-muted/40">
                     {/* eslint-disable-next-line @next/next/no-img-element -- private proxied binary; next/image optimization is inappropriate */}
                     <img
                       src={src}

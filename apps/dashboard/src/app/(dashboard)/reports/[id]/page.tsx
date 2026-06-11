@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Globe } from "lucide-react";
+import { Layers } from "lucide-react";
 import { ReportDetail } from "@/components/dashboard/report-detail";
 import { ReportDetailSkeleton } from "@/components/dashboard/report-detail-skeleton";
 
@@ -16,12 +16,16 @@ export default async function ReportDetailPage({
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6 sm:py-12">
-      <div className="mb-8 flex items-center justify-end">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-          <Globe className="size-3" aria-hidden />
-          Portfolio
-        </span>
-      </div>
+      <header className="stagger mb-10 space-y-4">
+        <div className="inline-flex items-center gap-2.5">
+          <span className="flex size-9 items-center justify-center rounded-lg border border-border bg-card/80 shadow-sm">
+            <Layers className="size-4 text-primary" aria-hidden />
+          </span>
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Report detail
+          </span>
+        </div>
+      </header>
 
       <Suspense key={id} fallback={<ReportDetailSkeleton />}>
         <ReportDetail id={id} />

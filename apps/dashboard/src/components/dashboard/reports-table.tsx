@@ -30,11 +30,11 @@ export function ReportsTable({
   now: number;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="surface-card overflow-hidden">
       <div
         className={cn(
           GRID,
-          "hidden border-b border-border px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid",
+          "hidden border-b border-border/80 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid",
         )}
       >
         <span>Status</span>
@@ -45,7 +45,7 @@ export function ReportsTable({
         <span aria-hidden />
       </div>
 
-      <ul className="divide-y divide-border">
+      <ul className="divide-y divide-border/80">
         {reports.map((report) => {
           const status = reportRunStatus(report);
           return (
@@ -54,7 +54,7 @@ export function ReportsTable({
                 href={`/reports/${encodeURIComponent(report.id)}`}
                 className={cn(
                   GRID,
-                  "group px-4 py-3 text-sm transition-colors duration-150 ease-out hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                  "group px-4 py-3 text-sm transition-[background-color,transform] duration-150 ease-out hover:bg-accent/50 active:scale-[0.995] focus-visible:bg-accent/50 focus-visible:outline-none",
                 )}
               >
                 <StatusBadge status={status} className="justify-self-start" />
@@ -90,7 +90,7 @@ export function ReportsTable({
                 </span>
 
                 <ChevronRight
-                  className="hidden size-4 text-muted-foreground/50 transition-[color,transform] duration-150 ease-out group-hover:translate-x-0.5 group-hover:text-muted-foreground sm:block"
+                  className="hidden size-4 text-muted-foreground/40 transition-[color,transform] duration-150 ease-out group-hover:translate-x-0.5 group-hover:text-muted-foreground sm:block"
                   aria-hidden
                 />
               </Link>

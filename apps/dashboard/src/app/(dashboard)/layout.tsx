@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { Activity } from "lucide-react";
+import { BrandMark } from "@/components/dashboard/brand-mark";
 
 export const dynamic = "force-dynamic";
 
@@ -14,20 +13,21 @@ export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur">
+    <div className="relative min-h-screen">
+      <div className="surface-glow pointer-events-none fixed inset-0" aria-hidden />
+      <div
+        className="surface-grid-bg surface-grid-bg--fade pointer-events-none fixed inset-0 opacity-50"
+        aria-hidden
+      />
+
+      <header className="sticky top-0 z-20 border-b border-border/80 bg-background/70 backdrop-blur-md">
         <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4 sm:px-6">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-sm font-semibold tracking-tight"
-          >
-            <Activity className="size-4 text-primary" aria-hidden />
-            cod3mate QA
-          </Link>
+          <BrandMark />
           <UserButton />
         </div>
       </header>
-      {children}
+
+      <div className="relative z-10">{children}</div>
     </div>
   );
 }
