@@ -118,3 +118,33 @@ body {
     animation: fade-only 200ms ease forwards;
   }
 }
+
+/* Auth landing — subtle depth without visual noise. */
+.auth-panel {
+  background-color: oklch(0.12 0 0);
+}
+
+.auth-grid-bg {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 2.5%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 2.5%) 1px, transparent 1px);
+  background-size: 3rem 3rem;
+  mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+}
+
+.auth-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 70% 55% at 20% 15%,
+      oklch(0.62 0.19 250 / 14%),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 50% 40% at 80% 80%,
+      oklch(0.62 0.19 250 / 6%),
+      transparent 70%
+    );
+}
