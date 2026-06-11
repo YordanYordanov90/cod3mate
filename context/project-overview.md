@@ -4,6 +4,21 @@
 
 This project is a private Telegram-controlled AI agent deployed as an always-on Railway service. The agent receives messages only from the owner, uses OpenAI directly for reasoning, can call controlled tools for browser automation, terminal execution, temporary file work, and web search, then streams or chunks responses back to Telegram. It loads behavior, personality, and operating rules from `SOUL.md` at startup and keeps credentials out of model-visible content, tool output, task summaries, and Telegram responses.
 
+A separate read-only Next.js QA dashboard lives on another git branch and deploys to Vercel. The two surfaces share no runtime process — only HTTP + env vars — but share the same `context/` documentation folder.
+
+## Repository Branches
+
+The repo is split across **two long-lived branches**, each tied to one deployment. Do not assume every path exists on every branch.
+
+| Branch | Deploy target | What lives there |
+| --- | --- | --- |
+| `main` | **Railway** (always-on agent) | Telegram bot, agent loop, tools, `/data` storage, Railway dashboard API (`src/dashboard/*`). **No** `apps/dashboard/` frontend. |
+| `feature/dashboard` | **Vercel** (Next.js dashboard) | `apps/dashboard/*` (Clerk UI, reports overview, report detail, screenshot proxy). Also carries npm workspaces and dashboard scripts at the repo root. Backend agent code may lag `main` until merged. |
+
+**Connectivity does not depend on git.** Vercel calls the live Railway URL with `DASHBOARD_API_BASE_URL` + `DASHBOARD_API_TOKEN`. Branches must stay aligned on the **API contract** and **`context/`** docs, not on sharing the same commit.
+
+Canonical workflow details: `context/dashboard.md` → **Branch And Deployment Workflow**.
+
 ## Goals
 
 1. Build a secure personal Telegram agent that responds only to a whitelisted Telegram user ID.
@@ -94,11 +109,8 @@ This project is a private Telegram-controlled AI agent deployed as an always-on 
 
 ### Deployment
 
-- Railway service built from a Dockerfile.
-- Docker image includes Node.js, Playwright, Chromium, and required system dependencies.
-- Persistent Railway volume mounted at `/data`.
-- Runtime configuration supplied through Railway environment variables.
-- Service designed to stay always on.
+- **Railway (`main`):** agent service built from a Dockerfile. Docker image includes Node.js, Playwright, Chromium, and required system dependencies. Persistent Railway volume mounted at `/data`. Runtime configuration supplied through Railway environment variables. Service designed to stay always on. Auto-deploys on push to `main`.
+- **Vercel (`feature/dashboard`):** Next.js dashboard from `apps/dashboard` (Vercel Root Directory). Auto-deploys on push to `feature/dashboard`. Reads QA data only through the Railway dashboard API — never from the volume directly.
 
 ### Private Dashboard (v1, in progress)
 

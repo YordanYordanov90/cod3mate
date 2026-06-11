@@ -13,6 +13,26 @@ Build this project incrementally using the context files as the source of truth.
 - Treat all external data as untrusted.
 - Do not add model providers, databases, dashboards, or multi-user support unless the context files are updated first.
 
+## Branch Rules
+
+This repo uses **two deployment branches**. Check which branch you are on before editing.
+
+| Work | Branch | Verify with |
+| --- | --- | --- |
+| Telegram bot, agent loop, tools, storage, security | `main` | `npm run build`, `npm run test:run` |
+| Railway dashboard API (`src/dashboard/*`), report contract on the agent side | `main` | dashboard tests under `tests/dashboard/` |
+| Next.js dashboard UI (`apps/dashboard/*`), Clerk, Vercel config | `feature/dashboard` | `npm run dashboard:build`, `npm run dashboard:lint` |
+| Planning docs shared by both surfaces | **both** — keep `context/` identical | diff `context/` across branches after edits |
+
+Additional rules:
+
+1. **Never put dashboard frontend-only work on `main`.** `apps/dashboard/` exists on `feature/dashboard`, not on `main`.
+2. **Land API contract changes on `main` first**, deploy Railway, then merge `main` into `feature/dashboard` so Zod schemas and routes match.
+3. **After changing `context/`**, sync the same folder to the other branch (or edit on both) so agents and dashboard work from one plan.
+4. **Do not merge whole branches casually.** Prefer targeted merges: `main` → `feature/dashboard` for backend parity; `context/` either way to keep docs aligned.
+
+Full deployment workflow: `context/dashboard.md` → **Branch And Deployment Workflow**.
+
 ## Scoping Rules
 
 - Work on one feature unit at a time.

@@ -81,17 +81,22 @@ Read this before doing agent or dashboard work so changes land in the right
 place.
 
 ```text
-main branch            -> Railway (agent service)
-  - GrammY Telegram bot
-  - OpenAI tool loop
+main branch            -> Railway (Telegram agent service)
+  - GrammY Telegram bot + OpenAI tool loop
   - QA reports + screenshots under /data
-  - dashboard API (src/dashboard/*)   <- shared API contract
+  - Railway dashboard API (src/dashboard/*)
+  - NO apps/dashboard/ frontend on this branch
 
-feature/dashboard      -> Vercel (Next.js dashboard, preview deploy)
-  - apps/dashboard/*  (Root Directory = apps/dashboard)
-  - Clerk auth
+feature/dashboard      -> Vercel (Next.js QA dashboard)
+  - apps/dashboard/*  (Vercel Root Directory = apps/dashboard)
+  - Clerk auth + read-only QA UI
   - server-side fetch -> Railway dashboard API
+  - npm workspaces at repo root (dashboard:* scripts)
 ```
+
+**`context/` is shared documentation.** Keep the `context/` folder identical on
+`main` and `feature/dashboard` so both deployments follow the same plan. Code
+trees may differ; docs should not.
 
 ### Where to work
 
@@ -101,21 +106,26 @@ feature/dashboard      -> Vercel (Next.js dashboard, preview deploy)
 | Railway dashboard API (`src/dashboard/*`, report/screenshot shapes) | `main` | Railway, **then** sync to `feature/dashboard` |
 | Dashboard UI / frontend (`apps/dashboard/*`) | `feature/dashboard` | Vercel (auto on push) |
 | Shared report contract (Zod schemas on both sides) | `main` first, then merge into `feature/dashboard` | Railway + Vercel |
+| Planning docs (`context/*`) | **both branches** (same content) | none (docs only) |
 
 ### Rules
 
-1. **Agent work happens on `main`.** Railway deploys `main`.
-2. **Dashboard UI work happens on `feature/dashboard`.** Vercel previews that
-   branch (Root Directory `apps/dashboard`).
-3. **Keep the branches in sync.** Regularly `git merge main` into
-   `feature/dashboard` so the frontend's API expectations match what Railway is
-   actually serving.
-4. **API contract changes go to `main` first.** Anything that changes the
+1. **Agent work happens on `main`.** Railway auto-deploys `main`. That branch
+   owns the live Telegram bot and the dashboard API the Vercel app calls.
+2. **Dashboard UI work happens on `feature/dashboard`.** Vercel deploys that
+   branch (Root Directory `apps/dashboard`). Do not add `apps/dashboard/` to
+   `main` unless deliberately unifying branches later (Milestone 12).
+3. **Keep `context/` identical on both branches.** When updating planning docs,
+   apply the same `context/` change to `main` and `feature/dashboard`.
+4. **Keep code branches aligned for API parity.** Regularly `git merge main`
+   into `feature/dashboard` so the frontend's Zod schemas and routes match what
+   Railway is actually serving.
+5. **API contract changes go to `main` first.** Anything that changes the
    Railway dashboard API (`src/dashboard/*`) or the report/screenshot JSON shape
    must land on `main` and deploy to Railway **before** the Vercel dashboard
    relies on it. Otherwise the dashboard gets `invalid_response` (schema drift)
    or `404`/empty data (missing route).
-5. **Different branches do NOT break the agent ↔ dashboard link.** Connectivity
+6. **Different branches do NOT break the agent ↔ dashboard link.** Connectivity
    depends only on env vars + a matching API contract, not on git branches.
 
 ### What can break (and the fix)
