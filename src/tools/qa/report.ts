@@ -1,5 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AssertionResult } from './assertions.js';
+import {
+  beginQaTranscript,
+  finalizeQaTranscript,
+  type QaTranscript,
+} from './transcript.js';
 
 /**
  * QA Report Builder (Phase 2 + high-priority UX hardening).
@@ -49,12 +54,18 @@ export interface QaCollectorPartial {
 /** Thrown when `fn` fails inside `withQaReportCollector` but partial report/screenshots exist. */
 export class QaCollectorRunError extends Error {
   readonly partial: QaCollectorPartial;
+  readonly transcript: QaTranscript | null;
 
-  constructor(cause: unknown, partial: QaCollectorPartial) {
+  constructor(
+    cause: unknown,
+    partial: QaCollectorPartial,
+    transcript: QaTranscript | null = null
+  ) {
     const msg = cause instanceof Error ? cause.message : String(cause);
     super(msg);
     this.name = 'QaCollectorRunError';
     this.partial = partial;
+    this.transcript = transcript;
     if (cause instanceof Error && cause.stack) {
       this.stack = cause.stack;
     }
@@ -122,21 +133,51 @@ export function getQaAssertionTally(): { total: number; passed: number; failed: 
 export async function withQaReportCollector<T>(
   title: string,
   fn: () => Promise<T>
-): Promise<{ result: T; report: QaReport | null; screenshotPaths: string[] }> {
+): Promise<{
+  result: T;
+  report: QaReport | null;
+  screenshotPaths: string[];
+  transcript: QaTranscript | null;
+}> {
   const state = createRunState(title);
+  beginQaTranscript(title);
   return qaReportStorage.run(state, async () => {
     try {
       const result = await fn();
       const { report, screenshotPaths } = snapshotCollector(state);
-      return { result, report, screenshotPaths };
+      const transcript = finalizeQaTranscript(extractTranscriptMeta(result));
+      return { result, report, screenshotPaths, transcript };
     } catch (cause) {
       const partial = snapshotCollector(state);
-      if (partial.report || partial.screenshotPaths.length > 0) {
-        throw new QaCollectorRunError(cause, partial);
+      const transcript = finalizeQaTranscript(extractTranscriptMeta(cause));
+      if (partial.report || partial.screenshotPaths.length > 0 || transcript) {
+        throw new QaCollectorRunError(cause, partial, transcript);
       }
       throw cause;
     }
   });
+}
+
+function extractTranscriptMeta(value: unknown): {
+  modelUsed?: string;
+  cancelled?: boolean;
+  iterationLimitHit?: boolean;
+} {
+  if (!value || typeof value !== 'object') return {};
+  const v = value as {
+    modelUsed?: string;
+    cancelled?: boolean;
+    iterationLimitHit?: boolean;
+  };
+  const out: {
+    modelUsed?: string;
+    cancelled?: boolean;
+    iterationLimitHit?: boolean;
+  } = {};
+  if (typeof v.modelUsed === 'string') out.modelUsed = v.modelUsed;
+  if (typeof v.cancelled === 'boolean') out.cancelled = v.cancelled;
+  if (typeof v.iterationLimitHit === 'boolean') out.iterationLimitHit = v.iterationLimitHit;
+  return out;
 }
 
 /** Synchronous collector scope (unit tests). */

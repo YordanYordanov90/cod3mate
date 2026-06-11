@@ -686,12 +686,14 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       let agentResult: Awaited<ReturnType<typeof runAgent>>;
       let qaReport: import('../tools/qa/report.js').QaReport | null = null;
       let screenshotPaths: string[] = [];
+      let qaTranscript: import('../tools/qa/transcript.js').QaTranscript | null = null;
 
       if (collectQa) {
         const wrapped = await withQaReportCollector(`QA: ${runTitle}`, runAgentOnce);
         agentResult = wrapped.result;
         qaReport = wrapped.report;
         screenshotPaths = wrapped.screenshotPaths;
+        qaTranscript = wrapped.transcript;
       } else {
         agentResult = await runAgentOnce();
       }
@@ -728,6 +730,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
           chunkSize: env.TELEGRAM_CHUNK_SIZE,
           report: qaReport,
           screenshotPaths,
+          transcript: qaTranscript,
           ...(qaTargetUrl ? { targetUrl: qaTargetUrl } : {}),
         });
         assistantContent += sessionSuffix;
@@ -748,6 +751,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
           chunkSize: env.TELEGRAM_CHUNK_SIZE,
           report: err.partial.report,
           screenshotPaths: err.partial.screenshotPaths,
+          transcript: err.transcript,
           reportPrefix: 'QA run ended with an error. Partial results:\n\n',
           ...(qaTargetUrl ? { targetUrl: qaTargetUrl } : {}),
         });

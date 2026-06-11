@@ -10,6 +10,7 @@ import { getQaArtifactPaths } from './qa-artifacts.js';
 export const SESSIONS_DIR = 'sessions';
 export const SOUL_FILE = 'SOUL.md';
 export const QA_REPORTS_DIR = 'qa-reports';
+export const QA_TRANSCRIPTS_DIR = 'qa-transcripts';
 export const QA_SCENARIOS_DIR = 'qa-scenarios';
 export { QA_ARTIFACTS_DIR, QA_SCREENSHOTS_SUBDIR } from './qa-artifacts.js';
 
@@ -18,6 +19,7 @@ export interface StoragePaths {
   sessionsDir: string;
   soulPath: string;
   qaReportsDir: string;
+  qaTranscriptsDir: string;
   qaScenariosDir: string;
   qaArtifactsDir: string;
   qaScreenshotsDir: string;
@@ -34,6 +36,7 @@ export function getStoragePaths(dataDir: string): StoragePaths {
     sessionsDir: path.join(resolvedData, SESSIONS_DIR),
     soulPath: path.join(resolvedData, SOUL_FILE),
     qaReportsDir: path.join(resolvedData, QA_REPORTS_DIR),
+    qaTranscriptsDir: path.join(resolvedData, QA_TRANSCRIPTS_DIR),
     qaScenariosDir: path.join(resolvedData, QA_SCENARIOS_DIR),
     qaArtifactsDir: artifactPaths.artifactsRoot,
     qaScreenshotsDir: artifactPaths.screenshotsRoot,
@@ -50,6 +53,7 @@ export async function ensureDataDirectories(dataDir: string): Promise<void> {
   await mkdir(paths.dataDir, { recursive: true });
   await mkdir(paths.sessionsDir, { recursive: true });
   await mkdir(paths.qaReportsDir, { recursive: true });
+  await mkdir(paths.qaTranscriptsDir, { recursive: true });
   await mkdir(paths.qaScenariosDir, { recursive: true });
   await mkdir(paths.qaArtifactsDir, { recursive: true });
   await mkdir(paths.qaScreenshotsDir, { recursive: true });

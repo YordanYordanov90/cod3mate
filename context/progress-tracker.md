@@ -81,11 +81,12 @@ The branches do not need identical code, but **`context/` should stay the same**
 - ✅ Phase 3: Mid-run steering — per-chat queue in `src/telegram/run-control.ts`; plain messages during active runs become steering; `/stop` cancels after in-flight tool; ack message in Telegram.
 - ✅ Phase 5: `/rewind [n]` — `rewindSession` trims last N user/assistant pairs from `/data/sessions/` without affecting QA reports.
 - ✅ Phase 6: Per-turn QA state injection — `src/agent/qa-state.ts` injects URL/viewport/console/net/assertion tally before each QA iteration (replaces prior snapshot).
-- 253 tests green; Phase 4 (transcript export / dashboard) still ⬜ — depends on dashboard M12 deploy.
+- ✅ Phase 4: QA run transcript export — collector in agent runner, persistence under `/data/qa-transcripts/`, `GET /api/dashboard/reports/:id/transcript`, dashboard transcript view on `/reports/[id]`. 268 tests green.
+- QA Roadmap v2 (Phases 1–6) complete.
 
 ## Next Up (incremental, no fixed schedule)
 
-- QA Roadmap v2 Phase 4: persisted sanitized QA run transcripts + dashboard API/UI (after dashboard M12 deploy).
+- Dashboard Milestone 12: Vercel deployment (Clerk + Railway API env).
 - Further terminal expansions only if real QA workloads demonstrate need (Phase 6 added grep/curl/npx/git-read; npx restricted to known runners, `git config` blocked).
 - Decide whether to re-wire the structured summary builder into a separate channel (digest / log / per-task artifact) or remove it.
 - Optional: webhook mode in front of long-polling once a public hostname is justified.

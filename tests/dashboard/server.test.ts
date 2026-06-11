@@ -397,6 +397,57 @@ describe('startDashboardServer (integration)', () => {
     expect(await image.text()).toBe('png-bytes');
   });
 
+  it('serves transcript endpoint when transcript file exists', async () => {
+    await writeReportFile(dataDir, `${REPORT_ID}.json`, {
+      id: REPORT_ID,
+      title: 'HTTP report',
+      startedAt: '2026-06-01T10:00:00.000Z',
+      entries: [{ name: 'check', status: 'pass' }],
+      summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+    });
+
+    const transcriptDir = path.join(dataDir, 'qa-transcripts');
+    await mkdir(transcriptDir, { recursive: true });
+    await writeFile(
+      path.join(transcriptDir, `${REPORT_ID}.json`),
+      JSON.stringify(
+        {
+          reportId: REPORT_ID,
+          title: 'HTTP report',
+          startedAt: '2026-06-01T10:00:00.000Z',
+          entries: [
+            {
+              sequence: 1,
+              timestamp: '2026-06-01T10:00:01.000Z',
+              kind: 'model_message',
+              content: 'Done',
+            },
+          ],
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+
+    handle = await startDashboardServer({
+      token: TOKEN,
+      dataDir,
+      port: 0,
+      logger: { log() {}, error() {} },
+    });
+    const base = `http://127.0.0.1:${handle.port}`;
+
+    const transcript = await fetch(`${base}/api/dashboard/reports/${REPORT_ID}/transcript`, {
+      headers: authHeaders(),
+    });
+    expect(transcript.status).toBe(200);
+    expect(await transcript.json()).toMatchObject({
+      ok: true,
+      transcript: { reportId: REPORT_ID, entries: [{ kind: 'model_message' }] },
+    });
+  });
+
   it('stops accepting connections after close', async () => {
     const local = await startDashboardServer({
       token: TOKEN,
