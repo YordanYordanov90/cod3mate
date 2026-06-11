@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import type { Tool, ToolDefinition, ToolResult, JsonSchema } from './types.js';
 import { sanitizeToolResult } from '../security/sanitize.js';
+import {
+  isToolInSet,
+  resolveToolSet,
+  type AgentToolSet,
+} from '../agent/tool-sets.js';
 
 /**
  * Tool Registry
@@ -76,6 +81,18 @@ export class ToolRegistry {
     }
 
     return defs;
+  }
+
+  /**
+   * Tool definitions scoped by run mode (Roadmap v2 Phase 2).
+   * `all` exposes every registered tool (debug escape hatch).
+   */
+  getToolDefinitionsForSet(
+    toolSet: AgentToolSet | undefined,
+    exposeAllTools = false
+  ): ToolDefinition[] {
+    const resolved = resolveToolSet(toolSet, exposeAllTools);
+    return this.getToolDefinitions().filter((def) => isToolInSet(def.name, resolved));
   }
 
   /**

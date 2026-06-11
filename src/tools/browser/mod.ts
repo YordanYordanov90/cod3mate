@@ -165,6 +165,19 @@ export function getCapturedResponses(): CapturedResponse[] {
   return [...capturedResponses];
 }
 
+/** Lightweight page snapshot for QA state injection (no navigation). */
+export async function getBrowserPageSnapshot(): Promise<{
+  url: string;
+  viewport: { width: number; height: number };
+} | null> {
+  if (!currentPage || currentPage.isClosed()) return null;
+  const viewport = currentPage.viewportSize();
+  return {
+    url: currentPage.url(),
+    viewport: viewport ?? { width: 0, height: 0 },
+  };
+}
+
 export { clearCapturedObservations };
 
 /** Resolve a safe screenshot filename with a supported image extension. */

@@ -104,6 +104,18 @@ export function isQaReportCollecting(): boolean {
   return getActiveState() != null;
 }
 
+/** Running assertion tally from the active collector (for QA state injection). */
+export function getQaAssertionTally(): { total: number; passed: number; failed: number } {
+  const state = getActiveState();
+  if (!state) return { total: 0, passed: 0, failed: 0 };
+  const entries = state.entries;
+  return {
+    total: entries.length,
+    passed: entries.filter((e) => e.status === 'pass').length,
+    failed: entries.filter((e) => e.status === 'fail').length,
+  };
+}
+
 /**
  * Run `fn` with an isolated QA report collector (recommended for bot handlers).
  */

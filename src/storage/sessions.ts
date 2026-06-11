@@ -115,3 +115,63 @@ export async function setSelectedModel(
   await saveSession(session, dataDir);
   return session;
 }
+
+export interface RewindSessionResult {
+  removedPairs: number;
+  remainingMessages: number;
+}
+
+const MAX_REWIND_PAIRS = 50;
+
+/**
+ * Remove the last N user/assistant exchange pairs from persisted session history.
+ * Roadmap v2 Phase 5 — session only; QA reports and scenarios are unaffected.
+ */
+export async function rewindSession(
+  chatId: number,
+  pairs: number,
+  dataDir: string
+): Promise<RewindSessionResult> {
+  const n = Math.min(Math.max(1, Math.floor(pairs)), MAX_REWIND_PAIRS);
+  const session = await loadSession(chatId, dataDir);
+  const history = [...session.history];
+  let removedPairs = 0;
+
+  while (removedPairs < n && history.length > 0) {
+    const last = history[history.length - 1];
+    if (!last) break;
+
+    if (last.role === 'assistant') {
+      history.pop();
+      const prev = history[history.length - 1];
+      if (prev?.role === 'user') {
+        history.pop();
+        removedPairs += 1;
+        continue;
+      }
+      break;
+    }
+
+    if (last.role === 'user') {
+      history.pop();
+      const prev = history[history.length - 1];
+      if (prev?.role === 'assistant') {
+        history.pop();
+        removedPairs += 1;
+        continue;
+      }
+      removedPairs += 1;
+      break;
+    }
+
+    history.pop();
+  }
+
+  session.history = history;
+  await saveSession(session, dataDir);
+
+  return {
+    removedPairs,
+    remainingMessages: history.length,
+  };
+}

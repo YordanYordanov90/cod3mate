@@ -74,8 +74,18 @@ The branches do not need identical code, but **`context/` should stay the same**
 - Medium-issue cleanup: synced AGENTS.md, README.md, architecture.md, SOUL.md (env-only test creds), progress-tracker QA section; tightened `npx` allowlist; blocked `git config`; documented test-credential system-prompt exception in invariants.
 - High-priority QA UX: AsyncLocalStorage report collector (no cross-task bleed), QA collection only on `/qa-test`, `/qa-run`, or explicit QA phrasing; screenshots auto-sent to Telegram during active QA runs (`src/telegram/qa-ux.ts`).
 
+## Recently Completed (QA Roadmap v2 harness)
+
+- ✅ Phase 1: Context compaction — `src/agent/compaction.ts`; threshold/keep-recent env vars; integrated in `runAgent` with LLM summary + truncation fallback; sanitized summaries.
+- ✅ Phase 2: Mode-scoped tools — `chat` vs `qa` sets in `src/agent/tool-sets.ts` + `ToolRegistry.getToolDefinitionsForSet`; `AGENT_EXPOSE_ALL_TOOLS` escape hatch.
+- ✅ Phase 3: Mid-run steering — per-chat queue in `src/telegram/run-control.ts`; plain messages during active runs become steering; `/stop` cancels after in-flight tool; ack message in Telegram.
+- ✅ Phase 5: `/rewind [n]` — `rewindSession` trims last N user/assistant pairs from `/data/sessions/` without affecting QA reports.
+- ✅ Phase 6: Per-turn QA state injection — `src/agent/qa-state.ts` injects URL/viewport/console/net/assertion tally before each QA iteration (replaces prior snapshot).
+- 253 tests green; Phase 4 (transcript export / dashboard) still ⬜ — depends on dashboard M12 deploy.
+
 ## Next Up (incremental, no fixed schedule)
 
+- QA Roadmap v2 Phase 4: persisted sanitized QA run transcripts + dashboard API/UI (after dashboard M12 deploy).
 - Further terminal expansions only if real QA workloads demonstrate need (Phase 6 added grep/curl/npx/git-read; npx restricted to known runners, `git config` blocked).
 - Decide whether to re-wire the structured summary builder into a separate channel (digest / log / per-task artifact) or remove it.
 - Optional: webhook mode in front of long-polling once a public hostname is justified.

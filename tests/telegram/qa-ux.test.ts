@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { shouldCollectQaReport } from '../../src/telegram/qa-ux.js';
+import {
+  augmentInstructionForQa,
+  extractQaTargetUrl,
+  parseSlashCommand,
+  QA_MODE_INSTRUCTION_SUFFIX,
+  shouldCollectQaReport,
+} from '../../src/telegram/qa-ux.js';
 import {
   runQaReportCollectorSync,
   recordAssertion,
@@ -16,6 +22,24 @@ function makeAssertion(passed: boolean): AssertionResult {
     message: 'ok',
   };
 }
+
+describe('extractQaTargetUrl', () => {
+  it('extracts Target: URL from /qa-test-style instructions', () => {
+    expect(
+      extractQaTargetUrl('login flow Target: https://app.cloudcast.ai/dashboard')
+    ).toBe('https://app.cloudcast.ai/dashboard');
+  });
+
+  it('falls back to the first http(s) URL in the instruction', () => {
+    expect(extractQaTargetUrl('Check https://www.example.com/pricing renders')).toBe(
+      'https://www.example.com/pricing'
+    );
+  });
+
+  it('returns undefined when no URL is present', () => {
+    expect(extractQaTargetUrl('Verify the pricing table renders three tiers')).toBeUndefined();
+  });
+});
 
 describe('shouldCollectQaReport', () => {
   it('forces on when collectQaReport is true', () => {
@@ -35,6 +59,28 @@ describe('shouldCollectQaReport', () => {
   it('does not collect for generic chat', () => {
     expect(shouldCollectQaReport('What is Drizzle ORM?')).toBe(false);
     expect(shouldCollectQaReport('Fix the typo in README')).toBe(false);
+  });
+});
+
+describe('parseSlashCommand', () => {
+  it('parses command and args from hyphenated slash messages', () => {
+    expect(parseSlashCommand('/qa-history')).toEqual({
+      command: '/qa-history',
+      argsText: '',
+    });
+    expect(parseSlashCommand('/qa-test@codmate_bot https://app.example.com run checks')).toEqual({
+      command: '/qa-test',
+      argsText: 'https://app.example.com run checks',
+    });
+  });
+});
+
+describe('augmentInstructionForQa', () => {
+  it('appends QA assertion guidance', () => {
+    const out = augmentInstructionForQa('Test the login page');
+    expect(out).toContain('Test the login page');
+    expect(out).toContain('qa_assert_visible');
+    expect(out).toContain(QA_MODE_INSTRUCTION_SUFFIX);
   });
 });
 

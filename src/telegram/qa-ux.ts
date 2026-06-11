@@ -9,6 +9,17 @@ import { saveQaReport } from '../storage/qa-reports.js';
 
 const MAX_QA_SCREENSHOTS_PER_RUN = 5;
 
+/** Appended to QA-mode tasks so the model runs assertion tools (required to persist reports). */
+export const QA_MODE_INSTRUCTION_SUFFIX = [
+  '',
+  '---',
+  'QA REPORT MODE (required for dashboard):',
+  '- Run qa_assert_visible, qa_assert_url, qa_assert_text_contains, or other qa_assert_* after each important step.',
+  '- Browser-only actions and screenshots alone do NOT save a report; at least one qa_assert_* must pass or fail.',
+  '- After login/navigation, assert the URL and a key element on the page before continuing.',
+  '- Use browser_screenshot for evidence, but always pair screenshots with qa_assert_* checks.',
+].join('\n');
+
 export interface ProcessAgentOptions {
   maxIterations?: number;
   /** Force QA report + screenshot collection on or off. */
@@ -45,6 +56,23 @@ export function shouldCollectQaReport(
   return false;
 }
 
+/** Parse `/command@bot args` from a text message (works for hyphenated pseudo-commands). */
+export function parseSlashCommand(text: string): { command: string; argsText: string } {
+  const trimmed = text.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  const head = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+  const argsText = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim();
+  const command = (head.split('@')[0] ?? '').toLowerCase();
+  return { command, argsText };
+}
+
+/** Append QA-mode guidance so structured reports are actually persisted. */
+export function augmentInstructionForQa(instruction: string): string {
+  const trimmed = instruction.trim();
+  if (!trimmed) return QA_MODE_INSTRUCTION_SUFFIX.trim();
+  return `${trimmed}\n${QA_MODE_INSTRUCTION_SUFFIX}`;
+}
+
 export interface QaDeliveryResult {
   reportId?: string;
   sessionSuffix: string;
@@ -53,6 +81,16 @@ export interface QaDeliveryResult {
 /**
  * Persist report, send formatted report text, and deliver queued screenshots to Telegram.
  */
+/** Pull an explicit http(s) target from /qa-test-style instructions (`Target: <url>`). */
+export function extractQaTargetUrl(text: string): string | undefined {
+  const targetMatch = /\btarget:\s*(https?:\/\/\S+)/i.exec(text);
+  if (targetMatch?.[1]) {
+    return targetMatch[1].replace(/[.,;:!?)]+$/, '');
+  }
+  const firstUrl = text.match(/https?:\/\/[^\s<>"')\]]+/i)?.[0];
+  return firstUrl?.replace(/[.,;:!?)]+$/, '');
+}
+
 export async function deliverQaArtifacts(
   ctx: Context,
   args: {
@@ -62,9 +100,10 @@ export async function deliverQaArtifacts(
     report: QaReport | null;
     screenshotPaths: string[];
     reportPrefix?: string;
+    targetUrl?: string;
   }
 ): Promise<QaDeliveryResult> {
-  const { dataDir, tmpDir, chunkSize, report, screenshotPaths, reportPrefix = '' } = args;
+  const { dataDir, tmpDir, chunkSize, report, screenshotPaths, reportPrefix = '', targetUrl } = args;
   let reportId: string | undefined;
   let sessionSuffix = '';
 
@@ -73,6 +112,7 @@ export async function deliverQaArtifacts(
       reportId = await saveQaReport(dataDir, report, {
         tmpDir,
         tmpScreenshotPaths: screenshotPaths,
+        ...(targetUrl ? { targetUrl } : {}),
       });
     } catch (saveErr) {
       console.error('[qa] Failed to persist QA report:', saveErr);
@@ -84,6 +124,16 @@ export async function deliverQaArtifacts(
 
   if (screenshotPaths.length > 0) {
     await sendQaScreenshots(ctx, tmpDir, screenshotPaths);
+  }
+
+  if (!reportId && (!report || report.entries.length === 0)) {
+    await sendSafeText(
+      ctx,
+      sanitizeString(
+        'No QA report saved (0 qa_assert_* checks ran). The web dashboard only shows saved structured reports. Re-run with /qa-test and ask for qa_assert_visible / qa_assert_url on key steps, then check /qa-history.'
+      ),
+      chunkSize
+    );
   }
 
   const out: QaDeliveryResult = { sessionSuffix };

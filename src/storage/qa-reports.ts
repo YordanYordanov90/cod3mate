@@ -3,6 +3,11 @@ import { readdir, stat, mkdir } from 'node:fs/promises';
 import { readJsonFile, writeJsonFile, getStoragePaths } from './mod.js';
 import type { QaReport } from '../tools/qa/report.js';
 import {
+  extractHttpUrls,
+  inferProjectFromStoredReport,
+  projectFromUrl,
+} from '../dashboard/report-contract.js';
+import {
   copyTmpScreenshotToDurable,
   ensureQaArtifactsDirs,
   type DurableScreenshotMeta,
@@ -12,12 +17,16 @@ export type { DurableScreenshotMeta };
 
 export interface StoredQaReport extends QaReport {
   id: string;
+  project?: string;
+  targetUrl?: string;
   screenshots?: DurableScreenshotMeta[];
 }
 
 export interface SaveQaReportOptions {
   tmpDir?: string;
   tmpScreenshotPaths?: string[];
+  /** Explicit target URL from /qa-test or scenario baseUrl (preferred over title parsing). */
+  targetUrl?: string;
 }
 
 /**
@@ -79,6 +88,14 @@ export async function saveQaReport(
   const id = buildReportId(report);
   const filePath = path.join(dir, `${id}.json`);
   const toStore: StoredQaReport = { ...report, id };
+
+  const explicitTarget = options.targetUrl?.trim();
+  const targetFromTitle = extractHttpUrls(report.title).find((url) => projectFromUrl(url));
+  const resolvedTarget = explicitTarget || targetFromTitle;
+  if (resolvedTarget) {
+    toStore.targetUrl = resolvedTarget;
+  }
+  toStore.project = inferProjectFromStoredReport(toStore);
 
   const tmpDir = options.tmpDir;
   const tmpScreenshotPaths = options.tmpScreenshotPaths ?? [];

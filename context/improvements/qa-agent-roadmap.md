@@ -16,7 +16,7 @@ All work must preserve the existing invariants in `AGENTS.md` and `context/archi
 
 **Goal:** Keep long `/qa-test` runs (up to `QA_MAX_ITERATIONS` = 25 model calls, tool outputs up to `MAX_TOOL_OUTPUT_CHARS` = 12k chars each) from blowing up the context window, degrading model quality, and inflating cost.
 
-**Status:** ⬜
+**Status:** ✅
 
 ### What to build
 
@@ -40,7 +40,7 @@ All work must preserve the existing invariants in `AGENTS.md` and `context/archi
 
 **Goal:** Stop sending all ~26 tool definitions on every model call. Normal chat rarely needs `qa_assert_element_count` or `qa_intercept_api`. Scoping tools by mode reduces token cost and improves model tool selection.
 
-**Status:** ⬜
+**Status:** ✅
 
 ### What to build
 
@@ -64,7 +64,7 @@ All work must preserve the existing invariants in `AGENTS.md` and `context/archi
 
 **Goal:** Let the owner influence a running QA task instead of waiting for up to 25 iterations. A Telegram message sent during a run becomes a steering instruction injected before the next model call (e.g. "skip the login test, check the dashboard instead").
 
-**Status:** ⬜
+**Status:** ✅
 
 ### What to build
 
@@ -111,7 +111,7 @@ All work must preserve the existing invariants in `AGENTS.md` and `context/archi
 
 **Goal:** A more surgical alternative to `/reset`: drop the last N exchanges from the chat session without wiping the whole conversation.
 
-**Status:** ⬜
+**Status:** ✅
 
 ### What to build
 
@@ -134,7 +134,7 @@ All work must preserve the existing invariants in `AGENTS.md` and `context/archi
 
 **Goal:** During QA runs, inject a small live-state block before each model call (current URL, viewport, console error count, network failure count, assertions passed/failed so far) so the model stops wasting iterations re-orienting itself with `browser_extract_text`.
 
-**Status:** ⬜
+**Status:** ✅
 
 ### What to build
 

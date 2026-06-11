@@ -9,6 +9,7 @@ import {
   resetSession,
   appendMessage,
   createEmptySession,
+  rewindSession,
 } from '../../src/storage/sessions.js';
 
 describe('session persistence', () => {
@@ -57,5 +58,25 @@ describe('session persistence', () => {
     const loaded = await loadSession(chatId, tempDir);
     expect(loaded.history).toHaveLength(2);
     expect(loaded.history[1].role).toBe('assistant');
+  });
+
+  it('rewindSession removes the last exchange pair', async () => {
+    await appendMessage(chatId, 'user', 'one', tempDir);
+    await appendMessage(chatId, 'assistant', 'two', tempDir);
+    await appendMessage(chatId, 'user', 'three', tempDir);
+    await appendMessage(chatId, 'assistant', 'four', tempDir);
+
+    const result = await rewindSession(chatId, 1, tempDir);
+    expect(result.removedPairs).toBe(1);
+    expect(result.remainingMessages).toBe(2);
+
+    const loaded = await loadSession(chatId, tempDir);
+    expect(loaded.history.map((m) => m.content)).toEqual(['one', 'two']);
+  });
+
+  it('rewindSession handles empty history', async () => {
+    const result = await rewindSession(chatId, 1, tempDir);
+    expect(result.removedPairs).toBe(0);
+    expect(result.remainingMessages).toBe(0);
   });
 });
