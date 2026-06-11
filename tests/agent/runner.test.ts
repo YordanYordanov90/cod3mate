@@ -57,6 +57,31 @@ describe('agent runner (M4 no-tools)', () => {
     expect(mockChat).toHaveBeenCalledTimes(2);
   });
 
+  it('does not empty messages when compaction is enabled but under threshold', async () => {
+    const mockChat = vi.fn().mockResolvedValue({
+      content: 'Compaction-safe reply',
+      model: 'gpt-primary-test',
+    });
+
+    const mockClient: OpenAIClient = {
+      chat: mockChat,
+      getClient: () => ({} as any),
+    };
+
+    await runAgent(
+      {
+        ...baseInput,
+        compactionThresholdChars: 100_000,
+        compactionKeepRecent: 8,
+      },
+      { openai: mockClient }
+    );
+
+    const calledMessages = mockChat.mock.calls[0][0].messages;
+    expect(calledMessages.length).toBeGreaterThan(0);
+    expect(calledMessages.some((m: { role?: string }) => m.role === 'system')).toBe(true);
+  });
+
   it('includes system prompt with security rules + soul', async () => {
     const mockChat = vi.fn().mockResolvedValue({ content: 'ok', model: 'x' });
 

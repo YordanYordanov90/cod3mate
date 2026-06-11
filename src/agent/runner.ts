@@ -112,6 +112,16 @@ function appendSteeringMessages(
   return next;
 }
 
+/** Replace in-place without clearing when `next` is the same array reference. */
+function replaceMessagesInPlace(
+  target: ChatCompletionMessageParam[],
+  next: ChatCompletionMessageParam[]
+): void {
+  if (next === target) return;
+  target.length = 0;
+  target.push(...next);
+}
+
 export async function runAgent(
   input: AgentInput,
   deps: AgentDependencies
@@ -177,9 +187,7 @@ export async function runAgent(
             recordTranscriptSteering(text);
           }
         }
-        const merged = appendSteeringMessages(messages, steering);
-        messages.length = 0;
-        messages.push(...merged);
+        replaceMessagesInPlace(messages, appendSteeringMessages(messages, steering));
         if (steering.some((s) => /^stop$/i.test(s.trim()))) {
           requestCancel(input.chatId);
         }
@@ -188,9 +196,10 @@ export async function runAgent(
 
     if (input.injectQaState) {
       const snapshot = await buildQaStateSnapshot();
-      const replaced = replaceQaStateMessage(messages, snapshot);
-      messages.length = 0;
-      messages.push(...(replaced as ChatCompletionMessageParam[]));
+      replaceMessagesInPlace(
+        messages,
+        replaceQaStateMessage(messages, snapshot) as ChatCompletionMessageParam[]
+      );
     }
 
     if (compactionThreshold > 0) {
@@ -204,8 +213,7 @@ export async function runAgent(
         },
         deps.openai
       );
-      messages.length = 0;
-      messages.push(...compacted);
+      replaceMessagesInPlace(messages, compacted);
     }
 
     let response;
