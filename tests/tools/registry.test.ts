@@ -58,4 +58,29 @@ describe('Tool Registry (M5)', () => {
     expect(defs[0].name).toBe('echo');
     expect(defs[0].parameters.type).toBe('object');
   });
+
+  it('filters tool definitions by mode', () => {
+    registry.register({
+      name: 'file_read',
+      description: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async () => ({ ok: true, content: 'ok' }),
+    });
+    registry.register({
+      name: 'qa_assert_visible',
+      description: 'assert',
+      inputSchema: z.object({ selector: z.string() }),
+      execute: async () => ({ ok: true, content: 'pass' }),
+    });
+
+    const chatDefs = registry.getToolDefinitionsForSet('chat');
+    const qaDefs = registry.getToolDefinitionsForSet('qa');
+
+    expect(chatDefs.map((d) => d.name)).toEqual(['file_read']);
+    expect(qaDefs.map((d) => d.name)).toEqual(['file_read', 'qa_assert_visible']);
+    expect(registry.getToolDefinitionsForSet('chat', true).map((d) => d.name)).toEqual([
+      'file_read',
+      'qa_assert_visible',
+    ]);
+  });
 });

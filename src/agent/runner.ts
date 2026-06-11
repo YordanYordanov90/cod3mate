@@ -4,6 +4,15 @@ import { isRetryableForFallback } from './client.js';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { toolRegistry } from '../tools/registry.js';
 import type { ToolResult } from '../tools/types.js';
+import { compactMessagesIfNeeded } from './compaction.js';
+import type { AgentToolSet } from './tool-sets.js';
+import { buildQaStateSnapshot, replaceQaStateMessage } from './qa-state.js';
+import {
+  drainSteering,
+  requestCancel,
+  shouldCancelRun,
+} from '../telegram/run-control.js';
+import { sanitizeString } from '../security/sanitize.js';
 
 /**
  * Agent runner with multi-round tool loop support.
@@ -41,6 +50,18 @@ export interface AgentInput {
    * Defaults to 8 (from env MAX_AGENT_ITERATIONS). /qa-test passes 25 for long flows.
    */
   maxIterations?: number;
+  /** Tool set for this run (Roadmap v2 Phase 2). */
+  toolSet?: AgentToolSet;
+  /** When true, expose every registered tool regardless of toolSet. */
+  exposeAllTools?: boolean;
+  /** Compaction threshold in chars (0 disables). */
+  compactionThresholdChars?: number;
+  /** Recent in-loop messages to keep verbatim during compaction. */
+  compactionKeepRecent?: number;
+  /** Inject live QA state before each iteration (QA mode only). */
+  injectQaState?: boolean;
+  /** Chat id for steering/cancel hooks (Roadmap v2 Phase 3). */
+  chatId?: number;
 }
 
 export interface AgentResult {
@@ -50,6 +71,8 @@ export interface AgentResult {
   toolCallsExecuted?: Array<{ name: string; success: boolean }>;
   /** True if the loop exited because maxIterations was reached. */
   iterationLimitHit?: boolean;
+  /** True if the owner cancelled via /stop or steering "stop". */
+  cancelled?: boolean;
 }
 
 export interface AgentDependencies {
@@ -67,6 +90,21 @@ function toOpenAIMessages(
   }));
 }
 
+function appendSteeringMessages(
+  messages: ChatCompletionMessageParam[],
+  steering: string[]
+): ChatCompletionMessageParam[] {
+  if (steering.length === 0) return messages;
+  const next = [...messages];
+  for (const text of steering) {
+    next.push({
+      role: 'user',
+      content: sanitizeString(`[Steering] ${text}`),
+    });
+  }
+  return next;
+}
+
 export async function runAgent(
   input: AgentInput,
   deps: AgentDependencies
@@ -78,17 +116,23 @@ export async function runAgent(
     appCredentials: input.appCredentials,
   });
 
+  const initialHistoryMessages = toOpenAIMessages(input.history);
+
   const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
-    ...toOpenAIMessages(input.history),
+    ...initialHistoryMessages,
   ];
 
   const primary = input.selectedModel || input.primaryModel;
   const fallback = input.fallbackModel;
   const toolsEnabled = input.enableTools ?? true;
   const maxIterations = Math.max(1, input.maxIterations ?? 8);
+  const compactionThreshold = input.compactionThresholdChars ?? 0;
+  const compactionKeepRecent = Math.max(2, input.compactionKeepRecent ?? 8);
 
-  const toolDefs = toolsEnabled ? registry.getToolDefinitions() : [];
+  const toolDefs = toolsEnabled
+    ? registry.getToolDefinitionsForSet(input.toolSet, input.exposeAllTools ?? false)
+    : [];
   const openaiTools = toolDefs.map((t) => ({
     type: 'function' as const,
     function: {
@@ -105,6 +149,53 @@ export async function runAgent(
   let lastModelUsed = primary;
 
   for (let iter = 0; iter < maxIterations; iter++) {
+    if (input.chatId != null && shouldCancelRun(input.chatId)) {
+      return {
+        content:
+          lastContent && lastContent.trim().length > 0
+            ? `${lastContent}\n\n(Run stopped by owner request.)`
+            : 'Run stopped by owner request before a final answer was produced.',
+        modelUsed: lastModelUsed,
+        usedFallback,
+        cancelled: true,
+        ...(executedTools.length > 0 ? { toolCallsExecuted: executedTools } : {}),
+      };
+    }
+
+    if (input.chatId != null) {
+      const steering = drainSteering(input.chatId);
+      if (steering.length > 0) {
+        const merged = appendSteeringMessages(messages, steering);
+        messages.length = 0;
+        messages.push(...merged);
+        if (steering.some((s) => /^stop$/i.test(s.trim()))) {
+          requestCancel(input.chatId);
+        }
+      }
+    }
+
+    if (input.injectQaState) {
+      const snapshot = await buildQaStateSnapshot();
+      const replaced = replaceQaStateMessage(messages, snapshot);
+      messages.length = 0;
+      messages.push(...(replaced as ChatCompletionMessageParam[]));
+    }
+
+    if (compactionThreshold > 0) {
+      const compacted = await compactMessagesIfNeeded(
+        messages,
+        {
+          thresholdChars: compactionThreshold,
+          keepRecent: compactionKeepRecent,
+          initialHistoryCount: initialHistoryMessages.length,
+          model: activeModel,
+        },
+        deps.openai
+      );
+      messages.length = 0;
+      messages.push(...compacted);
+    }
+
     let response;
     try {
       response = await deps.openai.chat({
@@ -113,9 +204,6 @@ export async function runAgent(
         ...(openaiTools.length > 0 ? { tools: openaiTools } : {}),
       });
     } catch (err) {
-      // Only the first call can switch to the fallback model.
-      // After we have any conversation state (tool results), retrying with
-      // a different model on each iteration would be unsafe and confusing.
       if (iter === 0 && !usedFallback && isRetryableForFallback(err)) {
         console.warn(
           `[agent] Primary model "${primary}" failed with retryable error. Trying fallback "${fallback}".`
@@ -152,7 +240,7 @@ export async function runAgent(
         type: 'function',
         function: { name: tc.name, arguments: tc.arguments },
       })),
-    } as any);
+    } as ChatCompletionMessageParam);
 
     for (const tc of response.toolCalls!) {
       try {
@@ -165,14 +253,28 @@ export async function runAgent(
           role: 'tool',
           tool_call_id: tc.id,
           content: toolResult.ok ? toolResult.content : `Error: ${toolResult.error}`,
-        } as any);
-      } catch (toolErr: any) {
+        } as ChatCompletionMessageParam);
+      } catch (toolErr: unknown) {
+        const errMsg = toolErr instanceof Error ? toolErr.message : String(toolErr);
         executedTools.push({ name: tc.name, success: false });
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: `Error executing tool: ${toolErr?.message || toolErr}`,
-        } as any);
+          content: `Error executing tool: ${errMsg}`,
+        } as ChatCompletionMessageParam);
+      }
+
+      if (input.chatId != null && shouldCancelRun(input.chatId)) {
+        return {
+          content:
+            lastContent && lastContent.trim().length > 0
+              ? `${lastContent}\n\n(Run stopped by owner request after the current tool finished.)`
+              : 'Run stopped by owner request after the current tool finished.',
+          modelUsed: lastModelUsed,
+          usedFallback,
+          cancelled: true,
+          ...(executedTools.length > 0 ? { toolCallsExecuted: executedTools } : {}),
+        };
       }
     }
   }
@@ -188,3 +290,4 @@ export async function runAgent(
     ...(executedTools.length > 0 ? { toolCallsExecuted: executedTools } : {}),
   };
 }
+

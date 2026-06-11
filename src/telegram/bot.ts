@@ -2,7 +2,14 @@ import { Bot, Context } from 'grammy';
 import type { Env } from '../config/env.js';
 import { chunkMessage } from './format.js';
 import { createOwnerWhitelistMiddleware } from '../security/access.js';
-import type { ChatSession } from '../storage/sessions.js';
+import type { ChatSession, RewindSessionResult } from '../storage/sessions.js';
+import {
+  beginChatRun,
+  endChatRun,
+  enqueueSteering,
+  isChatRunActive,
+  requestCancel,
+} from './run-control.js';
 import { sanitizeString } from '../security/sanitize.js';
 import type { TaskSummaryInput } from '../summary/mod.js';
 import { withQaReportCollector, formatQaReport, QaCollectorRunError } from '../tools/qa/report.js';
@@ -41,6 +48,7 @@ export interface BotDependencies {
   // Session operations
   loadSession: (chatId: number) => Promise<ChatSession>;
   resetSession: (chatId: number) => Promise<void>;
+  rewindSession?: (chatId: number, pairs: number) => Promise<RewindSessionResult>;
   appendMessage: (chatId: number, role: 'user' | 'assistant', content: string) => Promise<ChatSession>;
   setSelectedModel: (chatId: number, model: string | undefined) => Promise<ChatSession>;
 
@@ -50,12 +58,16 @@ export interface BotDependencies {
     selectedModel?: string | null | undefined;
     /** Per-run override for QA flows (Phase 5) */
     maxIterations?: number;
+    toolSet?: 'chat' | 'qa';
+    injectQaState?: boolean;
+    chatId?: number;
   }) => Promise<{
     content: string;
     modelUsed: string;
     usedFallback: boolean;
     toolCallsExecuted?: Array<{ name: string; success: boolean }>;
     iterationLimitHit?: boolean;
+    cancelled?: boolean;
   }>;
 
   /** Optional task summary builder (M7). Injected in production; tests may omit. */
@@ -84,6 +96,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     fallbackModel,
     loadSession,
     resetSession,
+    rewindSession,
     appendMessage,
     setSelectedModel,
     runAgent,
@@ -110,6 +123,8 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       '/help — capabilities and limits',
       '/status — service health and config',
       '/reset — clear this chat\'s conversation history',
+      '/rewind [n] — remove the last n exchange pairs from session history',
+      '/stop — cancel a running agent task after the current tool finishes',
       '/model — view or switch the model for this chat',
       '/qa-history — list recent structured QA reports (from qa_assert_* usage)',
       '/qa-report <id> — show full saved QA report by id (from /qa-history)',
@@ -158,6 +173,8 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       'Responses: a single message containing the answer plus a compact footer with tools used and any failures.',
       '',
       `QA mode: /qa-test or explicit QA requests enable structured reports (qa_assert_*) + screenshots sent here. /qa-test uses ${env.QA_MAX_ITERATIONS} iterations and resets the browser. /qa-history and /qa-report <id>. Scenarios: /qa-scenarios, /qa-run <name>.`,
+      'During a run: send a plain message to steer the agent; use /stop to cancel.',
+      `/rewind [n] trims the last n user/assistant pairs without wiping the whole session (default n=1).`,
       '',
       'Use /status for current configuration.',
     ].join('\n');
@@ -176,6 +193,8 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       `Temp dir:        ${env.TMP_DIR}`,
       `Chunk size:      ${env.TELEGRAM_CHUNK_SIZE}`,
       `Max iterations:  ${env.MAX_AGENT_ITERATIONS} (chat) / ${env.QA_MAX_ITERATIONS} (/qa-test)`,
+      `Compaction:      ${env.AGENT_COMPACTION_THRESHOLD_CHARS > 0 ? `on (threshold ${env.AGENT_COMPACTION_THRESHOLD_CHARS} chars, keep ${env.AGENT_COMPACTION_KEEP_RECENT} recent)` : 'off'}`,
+      `Tool exposure:   ${env.AGENT_EXPOSE_ALL_TOOLS ? 'full set (debug)' : 'mode-scoped (chat vs qa)'}`,
       '',
       'Agent loop:      active (with tools)',
       'Sessions:        active (persisted under /data/sessions)',
@@ -189,6 +208,63 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     ];
 
     await sendSafe(ctx, lines.join('\n'), env.TELEGRAM_CHUNK_SIZE);
+  });
+
+  bot.command('stop', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await sendSafe(ctx, 'Unable to identify chat for stop.', env.TELEGRAM_CHUNK_SIZE);
+      return;
+    }
+
+    if (!isChatRunActive(chatId)) {
+      await sendSafe(
+        ctx,
+        'No agent run is active in this chat. Send a message or /qa-test to start one.',
+        env.TELEGRAM_CHUNK_SIZE
+      );
+      return;
+    }
+
+    requestCancel(chatId);
+    await sendSafe(
+      ctx,
+      'Stop requested — the run will end after the current tool finishes.',
+      env.TELEGRAM_CHUNK_SIZE
+    );
+  });
+
+  bot.command('rewind', async (ctx) => {
+    const chatId = ctx.chat?.id;
+    if (!chatId) {
+      await sendSafe(ctx, 'Unable to identify chat for rewind.', env.TELEGRAM_CHUNK_SIZE);
+      return;
+    }
+
+    if (!rewindSession) {
+      await sendSafe(ctx, 'Session rewind is not available.', env.TELEGRAM_CHUNK_SIZE);
+      return;
+    }
+
+    const raw = (ctx.message?.text ?? '').trim();
+    const arg = raw.split(/\s+/).slice(1)[0];
+    const pairs = arg ? Number.parseInt(arg, 10) : 1;
+
+    if (!Number.isFinite(pairs) || pairs < 1) {
+      await sendSafe(
+        ctx,
+        'Usage: /rewind [n]\n\nRemove the last n user/assistant exchange pairs (default n=1, max 50).',
+        env.TELEGRAM_CHUNK_SIZE
+      );
+      return;
+    }
+
+    const result = await rewindSession(chatId, pairs);
+    await sendSafe(
+      ctx,
+      `Rewound ${result.removedPairs} exchange pair(s). ${result.remainingMessages} message(s) remain in session history.`,
+      env.TELEGRAM_CHUNK_SIZE
+    );
   });
 
   bot.command('reset', async (ctx) => {
@@ -599,9 +675,13 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
         history,
         selectedModel: session.selectedModel ?? null,
         ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
+        toolSet: collectQa ? 'qa' : 'chat',
+        injectQaState: collectQa,
+        chatId,
       });
     };
 
+    beginChatRun(chatId);
     try {
       let agentResult: Awaited<ReturnType<typeof runAgent>>;
       let qaReport: import('../tools/qa/report.js').QaReport | null = null;
@@ -632,6 +712,9 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       }
       if (agentResult.iterationLimitHit) {
         footer.push('Stopped at iteration limit — break the task into smaller steps.');
+      }
+      if (agentResult.cancelled) {
+        footer.push('Run stopped by owner.');
       }
       if (footer.length > 0) sections.push(`—\n${footer.join('\n')}`);
 
@@ -676,6 +759,7 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
         env.TELEGRAM_CHUNK_SIZE
       );
     } finally {
+      endChatRun(chatId);
       stopTyping();
     }
   }
@@ -955,6 +1039,8 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
     '/help',
     '/status',
     '/reset',
+    '/rewind',
+    '/stop',
     '/model',
     '/qa-history',
     '/qa-hisotry',
@@ -987,6 +1073,17 @@ export function createBot(deps: BotDependencies): Cod3mateBot {
       return;
     }
     if (!userText.trim()) return;
+
+    const chatId = ctx.chat?.id;
+    if (chatId && isChatRunActive(chatId)) {
+      enqueueSteering(chatId, userText);
+      await sendSafe(
+        ctx,
+        'Steering noted — applying on the next step.',
+        env.TELEGRAM_CHUNK_SIZE
+      );
+      return;
+    }
 
     await processAgentTask(ctx, userText);
   });

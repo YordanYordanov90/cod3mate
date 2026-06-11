@@ -45,6 +45,12 @@ const EnvSchema = z.object({
   /** Iteration budget for /qa-test (and other explicit QA runs). Default 25. */
   QA_MAX_ITERATIONS: z.coerce.number().int().positive().default(25),
   MAX_TOOL_OUTPUT_CHARS: z.coerce.number().int().positive().default(12000),
+  /** Summarize older in-loop messages when history exceeds this char count (0 = off). */
+  AGENT_COMPACTION_THRESHOLD_CHARS: z.coerce.number().int().nonnegative().default(100_000),
+  /** In-loop messages kept verbatim during compaction. */
+  AGENT_COMPACTION_KEEP_RECENT: z.coerce.number().int().positive().default(8),
+  /** When true, every model call receives the full tool set (debug escape hatch). */
+  AGENT_EXPOSE_ALL_TOOLS: envBoolean(false).default(false),
   TELEGRAM_CHUNK_SIZE: z.coerce.number().int().positive().default(3500),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   ENABLE_FILE_LOGS: z.coerce.boolean().default(false),
@@ -139,6 +145,9 @@ export function getEnvSummary(env: Env): Record<string, unknown> {
     MAX_AGENT_ITERATIONS: env.MAX_AGENT_ITERATIONS,
     QA_MAX_ITERATIONS: env.QA_MAX_ITERATIONS,
     MAX_TOOL_OUTPUT_CHARS: env.MAX_TOOL_OUTPUT_CHARS,
+    AGENT_COMPACTION_THRESHOLD_CHARS: env.AGENT_COMPACTION_THRESHOLD_CHARS,
+    AGENT_COMPACTION_KEEP_RECENT: env.AGENT_COMPACTION_KEEP_RECENT,
+    AGENT_EXPOSE_ALL_TOOLS: env.AGENT_EXPOSE_ALL_TOOLS,
     TELEGRAM_CHUNK_SIZE: env.TELEGRAM_CHUNK_SIZE,
     LOG_LEVEL: env.LOG_LEVEL,
     ENABLE_FILE_LOGS: env.ENABLE_FILE_LOGS,

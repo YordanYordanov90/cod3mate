@@ -43,7 +43,7 @@ These must never be violated. Check every change against them.
 
 **Required:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID` (int), `OPENAI_API_KEY`, `OPENAI_PRIMARY_MODEL`, `OPENAI_FALLBACK_MODEL`, `TAVILY_API_KEY`
 
-**Optional (defaults):** `DATA_DIR` (`/data`), `TMP_DIR` (`/tmp/agent-files`), `MAX_AGENT_ITERATIONS` (`8` — chat default), `QA_MAX_ITERATIONS` (`25` — `/qa-test`), `MAX_TOOL_OUTPUT_CHARS` (`12000`), `TELEGRAM_CHUNK_SIZE` (`3500`), `LOG_LEVEL` (`info`), `ENABLE_FILE_LOGS` (`false`), `TAVILY_SEARCH_ENDPOINT` (`https://api.tavily.com/search`), plus legacy `TEST_ACCOUNT_EMAIL`/`_PASSWORD` and Phase 8 `TEST_CREDENTIALS_<APP>_*` pairs (sanitized + system-prompt-injected per app).
+**Optional (defaults):** `DATA_DIR` (`/data`), `TMP_DIR` (`/tmp/agent-files`), `MAX_AGENT_ITERATIONS` (`8` — chat default), `QA_MAX_ITERATIONS` (`25` — `/qa-test`), `MAX_TOOL_OUTPUT_CHARS` (`12000`), `AGENT_COMPACTION_THRESHOLD_CHARS` (`100000`), `AGENT_COMPACTION_KEEP_RECENT` (`8`), `AGENT_EXPOSE_ALL_TOOLS` (`false`), `TELEGRAM_CHUNK_SIZE` (`3500`), `LOG_LEVEL` (`info`), `ENABLE_FILE_LOGS` (`false`), `TAVILY_SEARCH_ENDPOINT` (`https://api.tavily.com/search`), plus legacy `TEST_ACCOUNT_EMAIL`/`_PASSWORD` and Phase 8 `TEST_CREDENTIALS_<APP>_*` pairs (sanitized + system-prompt-injected per app).
 
 ## Registered Tools (~26)
 
@@ -74,6 +74,8 @@ Expand only by updating `src/tools/terminal/mod.ts`, adding tests, and noting in
 | Command | Purpose |
 | --- | --- |
 | `/qa-test` | LLM-driven QA with `QA_MAX_ITERATIONS`, browser reset, auto report on assertions |
+| `/stop` | Cancel the active agent run after the in-flight tool finishes |
+| `/rewind [n]` | Remove the last N user/assistant pairs from session history (default 1) |
 | `/qa-run <name>` | Execute saved scenario (no LLM for steps) |
 | `/qa-scenarios` | List saved scenarios |
 | `/qa-history` | List recent QA reports |
@@ -82,7 +84,8 @@ Expand only by updating `src/tools/terminal/mod.ts`, adding tests, and noting in
 ## Current Status
 
 - **Milestones 1–8 complete.** Foundation through Railway deployment; bot live for whitelisted owner.
-- **QA Agent Roadmap (Phases 1–10) complete.** Assertions, reports, monitoring, waits, `/qa-test`, terminal expansion, scenarios, multi-app creds, viewport, a11y. See `context/improvements/qa-agent-roadmap.md`.
+- **QA Agent Roadmap (Phases 1–10) complete.** Assertions, reports, monitoring, waits, `/qa-test`, terminal expansion, scenarios, multi-app creds, viewport, a11y.
+- **QA Roadmap v2 harness (Phases 1–3, 5–6) complete.** Context compaction, mode-scoped tools, mid-run steering + `/stop`, `/rewind`, per-turn QA state injection. Phase 4 (transcript export) pending dashboard deploy. See `context/improvements/qa-agent-roadmap.md`.
 - **150+ Vitest tests** (browser integration tests require `npx playwright install`).
 
 ## Before Committing

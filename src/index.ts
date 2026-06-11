@@ -7,6 +7,7 @@ import { loadSoul } from './soul/mod.js';
 import {
   loadSession,
   resetSession,
+  rewindSession,
   appendMessage,
   setSelectedModel,
 } from './storage/sessions.js';
@@ -209,6 +210,7 @@ async function main() {
   const sessionDeps = {
     loadSession: (chatId: number) => loadSession(chatId, env.DATA_DIR),
     resetSession: (chatId: number) => resetSession(chatId, env.DATA_DIR),
+    rewindSession: (chatId: number, pairs: number) => rewindSession(chatId, pairs, env.DATA_DIR),
     appendMessage: (chatId: number, role: 'user' | 'assistant', content: string) =>
       appendMessage(chatId, role, content, env.DATA_DIR),
     setSelectedModel: (chatId: number, model: string | undefined) =>
@@ -220,6 +222,9 @@ async function main() {
     history: Array<{ role: 'user' | 'assistant'; content: string }>;
     selectedModel?: string | null | undefined;
     maxIterations?: number;
+    toolSet?: 'chat' | 'qa';
+    injectQaState?: boolean;
+    chatId?: number;
   }) =>
     runAgent(
       {
@@ -232,6 +237,12 @@ async function main() {
         maxIterations: args.maxIterations ?? env.MAX_AGENT_ITERATIONS,
         testCredentials: legacyTestCredentials,
         appCredentials,
+        toolSet: args.toolSet ?? 'chat',
+        exposeAllTools: env.AGENT_EXPOSE_ALL_TOOLS,
+        compactionThresholdChars: env.AGENT_COMPACTION_THRESHOLD_CHARS,
+        compactionKeepRecent: env.AGENT_COMPACTION_KEEP_RECENT,
+        injectQaState: args.injectQaState ?? false,
+        ...(args.chatId != null ? { chatId: args.chatId } : {}),
       },
       { openai }
     );
