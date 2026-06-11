@@ -188,9 +188,35 @@ The full structured summary builder still lives in `src/summary/mod.ts` (with it
 
 Persisted reports to GitHub, databases, or object storage remain out of scope. If reintroduced, update this section and `progress-tracker.md` first.
 
+## Repository And Branch Layout
+
+The codebase is intentionally split across two branches. Each branch maps to one production service; they are not required to share the same tree at every moment.
+
+```text
+main  ──────────────────────────►  Railway (Telegram agent + dashboard API)
+  src/          agent, tools, telegram, storage, security
+  src/dashboard/  read-only HTTP API for reports + screenshots
+  (no apps/dashboard/)
+
+feature/dashboard  ──────────────►  Vercel (Next.js QA dashboard)
+  apps/dashboard/   Clerk UI, server-side Railway client, screenshot proxy
+  package.json      npm workspaces + dashboard:* scripts
+  (agent src/ may be behind main until git merge)
+```
+
+| Concern | Branch | Path |
+| --- | --- | --- |
+| Telegram bot, agent loop, tools | `main` | `src/` (except dashboard HTTP layer) |
+| QA report + screenshot persistence | `main` | `/data` on Railway volume |
+| Railway dashboard API | `main` | `src/dashboard/*` |
+| Next.js dashboard UI | `feature/dashboard` | `apps/dashboard/*` |
+| Shared planning docs | **both** (keep identical) | `context/` |
+
+**Sync rules (summary):** agent and API changes land on `main` first; dashboard UI on `feature/dashboard`; merge `main` → `feature/dashboard` regularly for contract parity; keep `context/` the same on both branches. Full rules in `context/dashboard.md`.
+
 ## Deployment Architecture
 
-Railway runs one Dockerized service:
+Railway runs one Dockerized service (from `main`):
 
 - Build stage installs dependencies and compiles TypeScript.
 - Runtime stage includes Node.js and Playwright Chromium dependencies.
@@ -199,6 +225,8 @@ Railway runs one Dockerized service:
 - Health check endpoint may be added if webhook mode or Railway checks require HTTP.
 
 Polling mode is acceptable for the first deployment because it avoids a public webhook setup. Webhook mode can be added later if needed.
+
+Vercel hosts the Next.js dashboard (from `feature/dashboard`, Root Directory `apps/dashboard`). It has no access to the Railway volume; all QA data is fetched server-side over HTTPS to the Railway dashboard API.
 
 ## Dashboard Architecture (v1)
 

@@ -2,6 +2,15 @@
 
 Update this file after every meaningful implementation change.
 
+## Dual-Branch Model
+
+Progress spans two git branches and two deploy targets:
+
+- **`main` → Railway:** Telegram agent, tools, QA persistence, Railway dashboard API. Track agent milestones and QA roadmap phases here.
+- **`feature/dashboard` → Vercel:** Next.js dashboard (`apps/dashboard`). Track dashboard milestones (M0–M12 in `context/dashboard.md`) here.
+
+The branches do not need identical code, but **`context/` should stay the same** on both so planning does not drift. After backend work on `main`, merge into `feature/dashboard` when the dashboard needs updated API behavior. See `context/dashboard.md` → **Branch And Deployment Workflow**.
+
 ## Status Legend
 
 - ✅ Done
