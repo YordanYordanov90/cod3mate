@@ -88,7 +88,7 @@ All work must preserve the existing invariants in `AGENTS.md` and `context/archi
 
 **Goal:** Extend the dashboard (see `context/dashboard.md`) to render the full transcript of a QA run — model reasoning, tool calls, tool results, and screenshots inline — not just the final report. The Pi `/share`/`/export` idea applied to QA.
 
-**Status:** ⬜
+**Status:** ✅
 
 ### What to build
 

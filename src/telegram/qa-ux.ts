@@ -6,6 +6,8 @@ import { sanitizeString } from '../security/sanitize.js';
 import { chunkMessage } from './format.js';
 import { formatQaReport, buildQaSessionAnnotation, type QaReport } from '../tools/qa/report.js';
 import { saveQaReport } from '../storage/qa-reports.js';
+import { saveQaTranscript } from '../storage/qa-transcripts.js';
+import type { QaTranscript } from '../tools/qa/transcript.js';
 
 const MAX_QA_SCREENSHOTS_PER_RUN = 5;
 
@@ -99,11 +101,21 @@ export async function deliverQaArtifacts(
     chunkSize: number;
     report: QaReport | null;
     screenshotPaths: string[];
+    transcript?: QaTranscript | null;
     reportPrefix?: string;
     targetUrl?: string;
   }
 ): Promise<QaDeliveryResult> {
-  const { dataDir, tmpDir, chunkSize, report, screenshotPaths, reportPrefix = '', targetUrl } = args;
+  const {
+    dataDir,
+    tmpDir,
+    chunkSize,
+    report,
+    screenshotPaths,
+    transcript = null,
+    reportPrefix = '',
+    targetUrl,
+  } = args;
   let reportId: string | undefined;
   let sessionSuffix = '';
 
@@ -114,6 +126,13 @@ export async function deliverQaArtifacts(
         tmpScreenshotPaths: screenshotPaths,
         ...(targetUrl ? { targetUrl } : {}),
       });
+      if (reportId && transcript && transcript.entries.length > 0) {
+        try {
+          await saveQaTranscript(dataDir, reportId, transcript);
+        } catch (transcriptErr) {
+          console.error('[qa] Failed to persist QA transcript:', transcriptErr);
+        }
+      }
     } catch (saveErr) {
       console.error('[qa] Failed to persist QA report:', saveErr);
     }

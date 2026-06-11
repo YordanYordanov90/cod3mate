@@ -8,6 +8,7 @@ import {
   type DashboardProject,
   type DashboardReport,
   type DashboardScreenshot,
+  type DashboardTranscript,
   type ListReportsOptions,
   type ListReportsResult,
 } from "./api-client-core";
@@ -19,6 +20,7 @@ export type {
   DashboardProject,
   DashboardReport,
   DashboardScreenshot,
+  DashboardTranscript,
   ListReportsOptions,
   ListReportsResult,
 } from "./api-client-core";
@@ -73,4 +75,11 @@ export async function getReportScreenshots(
   overrides?: Partial<DashboardApiClientConfig>,
 ): Promise<DashboardScreenshot[]> {
   return getDashboardApiClient(overrides).getReportScreenshots(id);
+}
+
+export async function getReportTranscript(
+  id: string,
+  overrides?: Partial<DashboardApiClientConfig>,
+): Promise<DashboardTranscript> {
+  return getDashboardApiClient(overrides).getReportTranscript(id);
 }

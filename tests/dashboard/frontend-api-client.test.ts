@@ -152,6 +152,37 @@ describe("dashboard frontend API client (Milestone 9)", () => {
     } satisfies Partial<DashboardApiError>);
   });
 
+  it("getReportTranscript sends bearer auth and validates the response", async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe(
+        `${BASE_URL}/api/dashboard/reports/report-1/transcript`,
+      );
+      expect(init?.headers).toMatchObject({
+        Authorization: `Bearer ${TOKEN}`,
+      });
+      return jsonResponse({
+        ok: true,
+        transcript: {
+          reportId: "report-1",
+          title: "Login flow",
+          startedAt: "2026-06-01T12:00:00.000Z",
+          entries: [
+            {
+              sequence: 1,
+              timestamp: "2026-06-01T12:00:01.000Z",
+              kind: "model_message",
+              content: "Checking login page",
+            },
+          ],
+        },
+      });
+    });
+
+    const transcript = await createClient(fetchMock).getReportTranscript("report-1");
+    expect(transcript.reportId).toBe("report-1");
+    expect(transcript.entries).toHaveLength(1);
+  });
+
   it("throws invalid_response when the JSON shape does not match the contract", async () => {
     const fetchMock = vi.fn(async () =>
       jsonResponse({

@@ -671,6 +671,7 @@ Railway API:
 - `GET /api/dashboard/reports?project=&limit=&cursor=`
 - `GET /api/dashboard/reports/:id`
 - `GET /api/dashboard/reports/:id/screenshots`
+- `GET /api/dashboard/reports/:id/transcript`
 - `GET /api/dashboard/screenshots/:reportId/:filename`
 
 Backend env:

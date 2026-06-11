@@ -10,6 +10,7 @@ import {
   sanitizeDashboardResponse,
 } from './reports-api.js';
 import { listReportScreenshots, readDashboardScreenshot } from './screenshots-api.js';
+import { getDashboardTranscriptByReportId } from './transcript-api.js';
 
 /**
  * Railway Dashboard API — Milestones 4–6 (health, reports, screenshots).
@@ -168,7 +169,25 @@ async function handleAuthenticatedDashboardRoute(
   const reportDetailPrefix = '/api/dashboard/reports/';
   if (pathname.startsWith(reportDetailPrefix)) {
     const remainder = pathname.slice(reportDetailPrefix.length);
+    const transcriptSuffix = '/transcript';
     const screenshotsSuffix = '/screenshots';
+
+    if (remainder.endsWith(transcriptSuffix)) {
+      const reportId = remainder.slice(0, -transcriptSuffix.length);
+      if (!reportId || reportId.includes('/')) {
+        return notFound();
+      }
+
+      const transcript = await getDashboardTranscriptByReportId(
+        ctx.dataDir,
+        decodeURIComponent(reportId)
+      );
+      if (!transcript) {
+        return notFound();
+      }
+
+      return ok({ ok: true, transcript });
+    }
 
     if (remainder.endsWith(screenshotsSuffix)) {
       const reportId = remainder.slice(0, -screenshotsSuffix.length);

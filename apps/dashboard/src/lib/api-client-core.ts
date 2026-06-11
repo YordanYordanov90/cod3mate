@@ -2,11 +2,13 @@ import type { z } from "zod";
 import {
   getReportResponseSchema,
   getReportScreenshotsResponseSchema,
+  getReportTranscriptResponseSchema,
   listProjectsResponseSchema,
   listReportsResponseSchema,
   type DashboardProject,
   type DashboardReport,
   type DashboardScreenshot,
+  type DashboardTranscript,
 } from "./api-contract";
 import { DashboardApiError } from "./api-errors";
 
@@ -15,6 +17,7 @@ export type {
   DashboardProject,
   DashboardReport,
   DashboardScreenshot,
+  DashboardTranscript,
 } from "./api-contract";
 
 type FetchFn = typeof fetch;
@@ -130,6 +133,7 @@ export interface DashboardApiClient {
   listReports(options?: ListReportsOptions): Promise<ListReportsResult>;
   getReport(id: string): Promise<DashboardReport>;
   getReportScreenshots(id: string): Promise<DashboardScreenshot[]>;
+  getReportTranscript(id: string): Promise<DashboardTranscript>;
 }
 
 export function createDashboardApiClient(
@@ -176,6 +180,14 @@ export function createDashboardApiClient(
         getReportScreenshotsResponseSchema,
       );
       return data.screenshots;
+    },
+
+    async getReportTranscript(id) {
+      const data = await get(
+        `/api/dashboard/reports/${encodeURIComponent(id)}/transcript`,
+        getReportTranscriptResponseSchema,
+      );
+      return data.transcript;
     },
   };
 }

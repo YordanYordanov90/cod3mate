@@ -13,6 +13,13 @@ import {
   shouldCancelRun,
 } from '../telegram/run-control.js';
 import { sanitizeString } from '../security/sanitize.js';
+import {
+  isQaTranscriptCollecting,
+  recordTranscriptModelResponse,
+  recordTranscriptSteering,
+  recordTranscriptToolCall,
+  recordTranscriptToolResult,
+} from '../tools/qa/transcript.js';
 
 /**
  * Agent runner with multi-round tool loop support.
@@ -165,6 +172,11 @@ export async function runAgent(
     if (input.chatId != null) {
       const steering = drainSteering(input.chatId);
       if (steering.length > 0) {
+        if (isQaTranscriptCollecting()) {
+          for (const text of steering) {
+            recordTranscriptSteering(text);
+          }
+        }
         const merged = appendSteeringMessages(messages, steering);
         messages.length = 0;
         messages.push(...merged);
@@ -221,6 +233,23 @@ export async function runAgent(
 
     const hasToolCalls = response.toolCalls && response.toolCalls.length > 0;
 
+    if (isQaTranscriptCollecting()) {
+      const modelRecord: {
+        iteration: number;
+        model: string;
+        content: string;
+        toolNames?: string[];
+      } = {
+        iteration: iter,
+        model: lastModelUsed,
+        content: lastContent,
+      };
+      if (hasToolCalls) {
+        modelRecord.toolNames = response.toolCalls!.map((tc) => tc.name);
+      }
+      recordTranscriptModelResponse(modelRecord);
+    }
+
     if (!hasToolCalls) {
       return {
         content: lastContent || '(no response)',
@@ -245,18 +274,53 @@ export async function runAgent(
     for (const tc of response.toolCalls!) {
       try {
         const rawArgs = JSON.parse(tc.arguments || '{}');
+        if (isQaTranscriptCollecting()) {
+          recordTranscriptToolCall({
+            iteration: iter,
+            toolName: tc.name,
+            toolCallId: tc.id,
+            toolArgs: rawArgs,
+          });
+        }
+
         const toolResult: ToolResult = await registry.execute(tc.name, rawArgs);
 
         executedTools.push({ name: tc.name, success: toolResult.ok });
 
+        const toolContent = toolResult.ok
+          ? toolResult.content
+          : `Error: ${toolResult.error}`;
+
+        if (isQaTranscriptCollecting()) {
+          recordTranscriptToolResult({
+            iteration: iter,
+            toolName: tc.name,
+            toolCallId: tc.id,
+            content: toolContent,
+            success: toolResult.ok,
+            ...(tc.name === 'browser_screenshot' && toolResult.ok
+              ? { screenshotPath: toolResult.content }
+              : {}),
+          });
+        }
+
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: toolResult.ok ? toolResult.content : `Error: ${toolResult.error}`,
+          content: toolContent,
         } as ChatCompletionMessageParam);
       } catch (toolErr: unknown) {
         const errMsg = toolErr instanceof Error ? toolErr.message : String(toolErr);
         executedTools.push({ name: tc.name, success: false });
+        if (isQaTranscriptCollecting()) {
+          recordTranscriptToolResult({
+            iteration: iter,
+            toolName: tc.name,
+            toolCallId: tc.id,
+            content: `Error executing tool: ${errMsg}`,
+            success: false,
+          });
+        }
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,

@@ -58,6 +58,44 @@ export const getReportScreenshotsResponseSchema = z.object({
   screenshots: z.array(dashboardScreenshotSchema),
 });
 
+export const dashboardTranscriptEntrySchema = z.object({
+  sequence: z.number().int().positive(),
+  timestamp: z.string(),
+  kind: z.enum(["model_message", "tool_call", "tool_result", "steering", "run_end"]),
+  iteration: z.number().int().nonnegative().optional(),
+  model: z.string().optional(),
+  content: z.string().optional(),
+  toolName: z.string().optional(),
+  toolCallId: z.string().optional(),
+  toolArgs: z.record(z.unknown()).optional(),
+  success: z.boolean().optional(),
+  screenshotRef: z
+    .object({
+      filename: z.string(),
+      path: z.string(),
+      label: z.string().optional(),
+    })
+    .optional(),
+});
+
+export const dashboardTranscriptSchema = z.object({
+  reportId: z.string(),
+  title: z.string(),
+  startedAt: z.string(),
+  endedAt: z.string().optional(),
+  modelUsed: z.string().optional(),
+  cancelled: z.boolean().optional(),
+  iterationLimitHit: z.boolean().optional(),
+  entries: z.array(dashboardTranscriptEntrySchema),
+});
+
+export const getReportTranscriptResponseSchema = z.object({
+  ok: z.literal(true),
+  transcript: dashboardTranscriptSchema,
+});
+
 export type DashboardReport = z.infer<typeof dashboardReportSchema>;
 export type DashboardProject = z.infer<typeof dashboardProjectSchema>;
 export type DashboardScreenshot = z.infer<typeof dashboardScreenshotSchema>;
+export type DashboardTranscript = z.infer<typeof dashboardTranscriptSchema>;
+export type DashboardTranscriptEntry = z.infer<typeof dashboardTranscriptEntrySchema>;
