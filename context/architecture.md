@@ -88,6 +88,7 @@ persist session
 - **`/tmp/agent-files/`**: temporary file-tool workspace. Files here are disposable and may be cleared.
 - **`/data/qa-reports/`**: persisted structured QA reports (JSON) when `qa_assert_*` tools run.
 - **`/data/qa-scenarios/`**: reusable test scenario JSON files for `/qa-run`.
+- **`/data/qa-artifacts/screenshots/`**: durable, report-scoped QA screenshots for the dashboard (private artifacts; planned in `context/dashboard.md` Milestone 3). Distinct from the transient `/tmp/agent-files/screenshots/` workspace.
 
 Task summaries for normal chat are not persisted as files; the bot sends a merged Telegram message. QA reports are an exception and persist under `/data/qa-reports/`.
 
@@ -199,6 +200,56 @@ Railway runs one Dockerized service:
 
 Polling mode is acceptable for the first deployment because it avoids a public webhook setup. Webhook mode can be added later if needed.
 
+## Dashboard Architecture (v1)
+
+A private, read-only dashboard lets the owner inspect QA reports and screenshots in a web UI. Full plan, milestones, and interface contracts live in `context/dashboard.md`. This section captures the system relationship.
+
+```text
+Telegram owner
+  -> Railway agent service
+     - GrammY bot (unchanged)
+     - OpenAI tool loop (unchanged)
+     - QA reports + durable screenshots under /data
+     - private dashboard HTTP API (bearer-token auth)
+
+Vercel Next.js dashboard
+  - Clerk auth (any signed-in user; all reports shown)
+  - shadcn/ui, Zod validation
+  - server-side calls to the Railway dashboard API
+```
+
+Key points:
+
+- Railway stays the source of truth for real QA reports and screenshots because that data already lives on the Railway `/data` volume. Vercel cannot read that volume directly, so the dashboard reads through the authenticated Railway API.
+- The Railway dashboard API is an HTTP layer (Node built-in `http`) added **alongside** Telegram long-polling; the bot keeps polling unchanged. It is started only when `DASHBOARD_API_ENABLED` is true and requires bearer-token auth on all dashboard routes.
+- The Next.js dashboard talks to Railway **server-side only**. `DASHBOARD_API_TOKEN` must never be exposed to the browser.
+- Screenshots are served through the authenticated API with safe path resolution and containment (resolved root + `path.sep`), never as public static files.
+
+Planned Railway dashboard API (read-only):
+
+- `GET /health`
+- `GET /api/dashboard/health`
+- `GET /api/dashboard/projects`
+- `GET /api/dashboard/reports?project=&limit=&cursor=`
+- `GET /api/dashboard/reports/:id`
+- `GET /api/dashboard/reports/:id/screenshots`
+- `GET /api/dashboard/screenshots/:reportId/:filename`
+
+Planned backend env:
+
+- `DASHBOARD_API_ENABLED`
+- `DASHBOARD_API_TOKEN`
+- `DASHBOARD_API_PORT` or Railway `PORT`
+
+Planned dashboard (Vercel) env:
+
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `DASHBOARD_API_BASE_URL`
+- `DASHBOARD_API_TOKEN`
+
+A future portfolio/demo chat is out of scope for dashboard v1 and must use a separate surface with demo-safe storage and stricter tool limits.
+
 ## Invariants
 
 1. No Telegram update from a non-whitelisted user may reach the agent loop or tool registry.
@@ -211,3 +262,13 @@ Polling mode is acceptable for the first deployment because it avoids a public w
 8. Model IDs must be configurable through environment variables rather than hardcoded into business logic.
 9. Browser resources use a persistent tab within one Chromium instance; reset or shutdown must not leak memory on Railway.
 10. Implementation must remain deployable from a clean clone with environment variables and a mounted `/data` volume.
+
+### Dashboard invariants (v1)
+
+These extend, and never weaken, the invariants above.
+
+11. The dashboard is a public portfolio: the Vercel frontend is Clerk-protected (any signed-in user may view all reports; no owner allowlist or per-project curation), and the Railway dashboard API requires a server-to-server bearer token on every dashboard route.
+12. `DASHBOARD_API_TOKEN` is server-side only and must never be exposed to the browser or any client component.
+13. QA screenshots are private artifacts. They are served only through the authenticated API with safe path resolution and containment (resolved root + `path.sep`), never as public static files.
+14. The dashboard is read-only in v1: no dashboard-triggered agent runs and no terminal, file, browser, or OpenAI tool execution from the dashboard.
+15. Dashboard API responses are sanitized before returning data, and the dashboard API must not weaken Telegram owner-only access or any existing invariant.
